@@ -15,6 +15,7 @@
  */
 
 #include "impo_account_api.h"
+#include "impo_cloud_route.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,7 @@
 
 static const char *TAG = "impo_account_api";
 
-#define FETCH_URL "https://gadgets.impo.ai/fetch_vms"
+#define FETCH_URL IMPO_CLOUD_BASE_URL "/fetch_vms"
 #define MAX_RESPONSE (32 * 1024)
 #define ATTEMPTS 3   /* the first DNS lookup after Wi-Fi comes up often fails */
 
@@ -53,8 +54,10 @@ static esp_err_t on_http(esp_http_client_event_t *evt)
 /* Returns the HTTP status, or 0 if the request never completed. */
 static int fetch(const char *auth, resp_t *r)
 {
+    char url[96];
+    impo_cloud_route_url(FETCH_URL, url, sizeof(url));
     esp_http_client_config_t cfg = {
-        .url = FETCH_URL,
+        .url = url,
         .timeout_ms = 15000,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
@@ -72,6 +75,7 @@ static int fetch(const char *auth, resp_t *r)
     esp_err_t err = esp_http_client_perform(c);
     int status = esp_http_client_get_status_code(c);
     esp_http_client_cleanup(c);
+    impo_cloud_route_report(url, impo_cloud_route_http_ok(status));
     /* perform() reports 401 as an error; the status still tells us what happened. */
     if (status == 401 || status == 403) {
         return status;

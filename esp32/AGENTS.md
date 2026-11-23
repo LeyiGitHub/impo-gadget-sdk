@@ -527,7 +527,11 @@ Users never see the name Hatch.
 - Don't use `hatch` in a new file name or identifier. Use `impo` or
   `impo_gadget`. The Impo chat code is `components/impo/impo_chat*`.
 - The ESP32 account clients use `https://gadgets.impo.ai`, or the `api_url_v2`
-  base the app sends during pairing, with bare API paths. They ignore
+  base the app sends during pairing, with bare API paths.
+- Every connection to `gadgets.impo.ai` (Link Noise, the chat session, the VM
+  and account APIs) goes through `impo_cloud_route`: its endpoint or URL for
+  the host, then a report of whether the relay answered. A new cloud client
+  does the same, or it stays on Cloudflare in mainland China. They ignore
   `api_url`: only older firmware reads it, and that firmware adds `/hatch/`
   itself. Keep saving it so a device flashed back to older firmware still works.
 - `hatch` stays only where the server or the Impo app depends on it. Don't

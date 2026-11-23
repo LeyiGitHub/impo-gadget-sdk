@@ -23,6 +23,15 @@ limitations under the License.
 > - Gadgets connect to `https://gadgets.impo.ai` by default, instead of
 >   `https://api.muse.ai` and `hatch.metaaivm.com`. A gadget still follows
 >   `api_url_v2` and `noise_host` when setup provides them.
+> - In mainland China, where connections to Cloudflare often fail, an ESP32
+>   gadget reaches `gadgets.impo.ai` through a relay in Shenzhen
+>   (`gadget.itoy.cn:9443`). On each new Wi-Fi address it asks the relay's
+>   `/where` whether its public address is in mainland China; it uses the
+>   relay only when the answer is yes, and goes direct when the relay does not
+>   answer or fails three connections in a row. A gateway host other than
+>   `gadgets.impo.ai` is used as given. See
+>   [`esp32/components/impo_cloud_route`](esp32/components/impo_cloud_route/include/impo_cloud_route.h);
+>   `CONFIG_IMPO_CHINA_RELAY` turns it off.
 > - Every "Muse" name in the code, files and documentation is now "Impo",
 >   including the BLE name prefix (`ImpoGadget`), the Linux package and
 >   command (`impogadget`) and the ESP32 component (`components/impo`). The

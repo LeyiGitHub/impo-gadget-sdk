@@ -1,0 +1,25 @@
+menu "Impo cloud route"
+
+config IMPO_CHINA_RELAY
+    bool "Reach Impo through the mainland China relay when in mainland China"
+    default y
+    help
+        From mainland China, connections to gadgets.impo.ai (Cloudflare) often
+        fail or stall. With this on, the gadget asks the relay's /where once per
+        Wi-Fi address; when the relay says the gadget's public address is in
+        mainland China, the gadget reaches Impo through the relay instead. The
+        relay forwards the same TLS requests and WebSockets to gadgets.impo.ai.
+        A gateway host other than gadgets.impo.ai is always used as given.
+
+config IMPO_CHINA_RELAY_HOST
+    string "Relay host name"
+    depends on IMPO_CHINA_RELAY
+    default "gadget.itoy.cn"
+
+config IMPO_CHINA_RELAY_PORT
+    int "Relay port"
+    depends on IMPO_CHINA_RELAY
+    range 1 65535
+    default 9443
+
+endmenu

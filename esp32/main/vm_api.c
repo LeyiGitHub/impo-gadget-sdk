@@ -15,6 +15,7 @@
  */
 
 #include "vm_api.h"
+#include "impo_cloud_route.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -114,7 +115,9 @@ void vm_api_set_sdk_token(const char *sdk_token) {
 }
 
 static void make_api_url(char *out, size_t out_cap, const char *path) {
-    snprintf(out, out_cap, "%s%s", s_api_base, path);
+    char base[sizeof(s_api_base) + 32];
+    impo_cloud_route_url(s_api_base, base, sizeof(base));
+    snprintf(out, out_cap, "%s%s", base, path);
 }
 
 static char *str_dup(const cJSON *item) {
@@ -155,6 +158,7 @@ static int http_json(const char *url, esp_http_client_method_t method,
     esp_err_t err = esp_http_client_perform(client);
     *status_out = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
+    impo_cloud_route_report(url, impo_cloud_route_http_ok(*status_out));
 
     // Check HTTP status first — esp_http_client_perform returns
     // ESP_ERR_NOT_SUPPORTED on 401 responses (authentication challenge),

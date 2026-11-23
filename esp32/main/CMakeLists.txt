@@ -65,6 +65,7 @@ set(GADGET_REQUIRES
     efuse
     esp_security
     impo
+    impo_cloud_route
     gadget_power
     # The voice board's. Requirements are resolved before the configuration
     # is loaded, so this is unconditional; unused code is not linked.

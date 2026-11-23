@@ -69,6 +69,10 @@ class LinkEndpointLifecycleTest(unittest.TestCase):
 #include "vm_api.h"
 #include "diagnostic_log.h"
 #define CONFIG_IMPO_ENABLED 0
+/* The mainland China relay is off here: URLs are used as given. */
+static void impo_cloud_route_url(const char *url, char *out, size_t cap) {
+    snprintf(out, cap, "%s", url);
+}
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_OK 0

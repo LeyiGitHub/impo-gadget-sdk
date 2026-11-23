@@ -297,7 +297,9 @@ All of it can be self-hosted: the gateway deploys with `wrangler deploy`
 and two secrets (`TOKEN_SECRET`, `ADMIN_TOKEN`) plus the API's URL and
 service token; the API and worker are one container image; the firmware
 follows `api_url_v2` and `noise_host` from setup, with `gadgets.impo.ai` as
-the default (`impo_settings.c`). A guide that walks through the whole stack
+the default (`impo_settings.c`). Only `gadgets.impo.ai` goes through the
+mainland China relay (`components/impo_cloud_route`), so your own gateway
+host is reached as given. A guide that walks through the whole stack
 on one machine is still to be written (see the roadmap below).
 
 ## Roadmap

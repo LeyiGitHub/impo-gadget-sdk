@@ -18,6 +18,7 @@
 #include "stack_monitor.h"
 #include "noise_upgrade.h"
 #include "noise_tunnel_internal.h"
+#include "impo_cloud_route.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -71,8 +72,12 @@ static const char *TAG = "link.noise_ctrl";
 
 #define NOISE_DEFAULT_HOST "gadgets.impo.ai"
 static char s_noise_host[256] = NOISE_DEFAULT_HOST;
+// Where this session's TLS goes: s_noise_host, or the mainland China relay in
+// its place (impo_cloud_route.h), and the Host header naming it.
+static char s_noise_peer[256];
+static int s_noise_port = 443;
+static char s_noise_host_header[sizeof(s_noise_peer) + 8];
 #define NOISE_PATH       "/v1/noise"
-#define NOISE_PORT       443
 #define CTRL_STREAM_ID   1
 // One-shot GET /identity for the agent's name (TUNNEL_STREAM_ID is 2).
 #define IDENTITY_STREAM_ID 3
@@ -639,7 +644,7 @@ static noise_upgrade_result_t ws_upgrade(esp_tls_t *tls) {
         return NOISE_UPGRADE_FAILED;
     }
     int req_len = noise_upgrade_build_request(
-        NOISE_PATH, s_vm_id, s_noise_host,
+        NOISE_PATH, s_vm_id, s_noise_host_header,
         s_auth_token ? s_auth_token : "", req, req_cap);
 
     if (req_len <= 0) {
@@ -1873,14 +1878,18 @@ static session_result_t run_session(stack_monitor_t *stack) {
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 15000;
 
-    int r = esp_tls_conn_new_sync(s_noise_host, static_cast<int>(strlen(s_noise_host)),
-                                  NOISE_PORT, &cfg, tls);
+    impo_cloud_route_endpoint(s_noise_host, s_noise_peer, sizeof(s_noise_peer), &s_noise_port);
+    impo_cloud_route_host_header(s_noise_peer, s_noise_port, s_noise_host_header,
+                                 sizeof(s_noise_host_header));
+    int r = esp_tls_conn_new_sync(s_noise_peer, static_cast<int>(strlen(s_noise_peer)),
+                                  s_noise_port, &cfg, tls);
+    impo_cloud_route_report(s_noise_peer, r == 1);
     if (r != 1) {
         ESP_LOGE(TAG, "TLS connect failed: %d", r);
         esp_tls_conn_destroy(tls);
         return SESSION_NETWORK_FAILED;
     }
-    ESP_LOGI(TAG, "TLS connected to %s:%d (vm_id=%s)", s_noise_host, NOISE_PORT, s_vm_id);
+    ESP_LOGI(TAG, "TLS connected to %s:%d (vm_id=%s)", s_noise_peer, s_noise_port, s_vm_id);
 
     // 2. WebSocket upgrade
     noise_upgrade_result_t upgrade = ws_upgrade(tls);

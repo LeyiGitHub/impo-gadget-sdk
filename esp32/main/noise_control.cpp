@@ -93,6 +93,11 @@ static char s_noise_host_header[sizeof(s_noise_peer) + 8];
 #define RECONNECT_MIN_MS          1000
 #define RECONNECT_MAX_MS          15000
 #define RECONNECT_AUTH_FAILED_MS  60000
+// Impo's gateway issues VM credentials for 5 minutes and checks them only when
+// a session opens. A credential older than this is not tried again after a
+// session ends; Link asks for a fresh one and waits this long for it first.
+#define RECONNECT_VM_TOKEN_REUSE_MS   270000
+#define RECONNECT_VM_REFRESH_WAIT_MS  10000
 #define RECONNECT_DELAY_STEP_MS   250
 #define KEEPALIVE_INTERVAL_MS     60000
 #define POWER_SAVE_QUIET_MS       1000    // noise_ctrl_set_power_save(): quiet this long,
@@ -178,6 +183,7 @@ static noise_ctrl_agent_name_cb s_agent_name_cb = nullptr;
 
 static char s_vm_id[128];
 static char *s_auth_token = nullptr;
+static int64_t s_auth_token_us;   // when noise_ctrl_connect() was given s_auth_token
 static volatile bool s_connected = false;
 static std::atomic<bool> s_running{false};
 static std::atomic<bool> s_power_save{false};
@@ -1762,6 +1768,18 @@ static bool update_reconnect_policy(session_result_t result,
     return false;
 }
 
+// After a session that ended on its own (Cloudflare restarts edge servers and
+// closes long-lived WebSockets every so often), a VM credential older than the
+// gateway's 5 minutes is refused with 401 and only then refreshed: one TLS
+// handshake, the refusal and a heartbeat tick for nothing, about 7 s offline.
+// Returns whether to ask for fresh credentials before reconnecting. Not after a
+// refusal (that path refreshes already) or a connect nobody answered (new
+// credentials can't fix the path).
+static bool vm_token_outlived(session_result_t result, int64_t token_age_ms) {
+    if (result == SESSION_AUTH_FAILED || result == SESSION_NETWORK_FAILED) return false;
+    return token_age_ms > RECONNECT_VM_TOKEN_REUSE_MS;
+}
+
 static void reconnect_delay(uint32_t delay_ms) {
     while (s_running && delay_ms > 0) {
         uint32_t step = delay_ms < RECONNECT_DELAY_STEP_MS
@@ -2323,8 +2341,16 @@ static void noise_ctrl_task(void *arg) {
         uint64_t t0 = esp_timer_get_time();
         session_result_t result = run_session(&stack);
         uint64_t up_ms = (esp_timer_get_time() - t0) / 1000;
+        int64_t token_age_ms = (esp_timer_get_time() - s_auth_token_us) / 1000;
         if (update_reconnect_policy(result, up_ms, &backoff, &short_failures)) {
             notify_status("ws_refresh_needed");
+        } else if (vm_token_outlived(result, token_age_ms)) {
+            // The app fetches fresh credentials and calls noise_ctrl_connect(),
+            // which ends this wait. If it can't, the old one is tried anyway.
+            ESP_LOGI(TAG, "VM credential is %llds old; asking for a fresh one first",
+                     (long long)(token_age_ms / 1000));
+            notify_status("ws_refresh_needed");
+            if (backoff < RECONNECT_VM_REFRESH_WAIT_MS) backoff = RECONNECT_VM_REFRESH_WAIT_MS;
         }
         if (result == SESSION_AUTH_FAILED) {
             notify_status("ws_auth_failed");
@@ -2394,6 +2420,7 @@ extern "C" bool noise_ctrl_connect(const char *vm_id, const char *auth_token,
     store_wifi_ssid(network_ssid);
     free(s_auth_token);
     s_auth_token = strdup(auth_token);
+    s_auth_token_us = esp_timer_get_time();
 
     s_running = true;
     release_stack();

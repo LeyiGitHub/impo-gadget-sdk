@@ -154,6 +154,11 @@ class LinkTransportContractTest(unittest.TestCase):
         self.assertIn('notify_status("ws_auth_failed")', auth_failure)
         refresh = _function_body(task, "if (update_reconnect_policy(")
         self.assertIn('notify_status("ws_refresh_needed")', refresh)
+        # A credential the gateway no longer accepts is replaced before reconnecting.
+        outlived = _function_body(task, "} else if (vm_token_outlived(result, token_age_ms))")
+        self.assertIn('notify_status("ws_refresh_needed")', outlived)
+        self.assertIn("backoff = RECONNECT_VM_REFRESH_WAIT_MS", outlived)
+        self.assertIn("s_auth_token_us = esp_timer_get_time();", source)
         # link_noise_upgrade_harness.c runs noise_upgrade.h's request builder
         # and classifier: exact bearer header, no token in the request target,
         # CR/LF rejection, and 401/403 authentication failures. Check that the

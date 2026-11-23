@@ -155,7 +155,21 @@ static void test_reconnect_policy_network_failures_never_request_refresh(void) {
           failures);
 }
 
+static void test_outlived_vm_token_is_refreshed_before_reconnecting(void) {
+    // A session Cloudflare closed after an hour: the 5-minute credential is stale.
+    CHECK(vm_token_outlived(SESSION_FAILED, 3600000), "stale credential after a dropped session");
+    CHECK(vm_token_outlived(SESSION_OK, RECONNECT_VM_TOKEN_REUSE_MS + 1), "stale after a clean end");
+    CHECK(!vm_token_outlived(SESSION_FAILED, 60000), "a minute-old credential is reused");
+    CHECK(!vm_token_outlived(SESSION_FAILED, RECONNECT_VM_TOKEN_REUSE_MS), "the limit itself is reused");
+    // A refusal refreshes already; an unanswered connect can't be fixed by credentials.
+    CHECK(!vm_token_outlived(SESSION_AUTH_FAILED, 3600000), "auth failure has its own refresh");
+    CHECK(!vm_token_outlived(SESSION_NETWORK_FAILED, 3600000), "network failure keeps the credential");
+    CHECK(RECONNECT_VM_TOKEN_REUSE_MS < 300000, "reuse limit must be under the gateway's 5 minutes");
+    CHECK(RECONNECT_VM_REFRESH_WAIT_MS < RECONNECT_AUTH_FAILED_MS, "the wait must be short of the auth backoff");
+}
+
 int main(void) {
+    test_outlived_vm_token_is_refreshed_before_reconnecting();
     test_reconnect_policy_requests_vm_refresh_after_short_failures();
     test_reconnect_policy_resets_after_stable_session();
     test_reconnect_policy_auth_failure_uses_long_backoff();

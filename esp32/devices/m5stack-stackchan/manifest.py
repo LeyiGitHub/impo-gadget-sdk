@@ -72,7 +72,7 @@ def registered(path, name):
     return re.findall(r'\{\s*"([^"]+)"', m.group(1))
 
 
-def command(name, desc, req, opt):
+def command(name, desc, req, opt, result=None):
     req = json.loads(req) if req else {}
     opt = json.loads(opt) if opt else {}
     schema = {"type": "object", "properties": {**req, **opt}}
@@ -81,7 +81,28 @@ def command(name, desc, req, opt):
     schema["additionalProperties"] = False
     assert re.fullmatch(r'[a-z][a-z0-9_]*(\.[a-z0-9_]+){0,3}', name), name
     assert 1 <= len(desc) <= 500, (name, len(desc))
-    return {"name": name, "description": desc, "parameters": schema}
+    out = {"name": name, "description": desc, "parameters": schema}
+    if result is not None:
+        out["result"] = result   # what an ok answer holds; the Impo app shows it in the command's prototype
+    return out
+
+
+def answer(required=None, optional=None):
+    """The object an ok answer holds: required fields, then optional ones."""
+    required, optional = required or {}, optional or {}
+    schema = {"type": "object", "properties": {**required, **optional}}
+    if required:
+        schema["required"] = list(required)
+    return schema
+
+
+DONE = answer()   # ok, with nothing more
+NUMBER, INTEGER, BOOL, TEXT = {"type": "number"}, {"type": "integer"}, {"type": "boolean"}, {"type": "string"}
+MEASURED = answer({"yaw": {"type": "number", "description": "Degrees, as the servos measured it."},
+                   "pitch": {"type": "number", "description": "Degrees, as the servos measured it."}})
+REVIVED = {"servos_revived": {"type": "boolean", "description": "The servos had stopped answering and were power-cycled."}}
+XYZ = answer({"x": NUMBER, "y": NUMBER, "z": NUMBER})
+PLAYED = answer({"played_ms": {"type": "integer", "description": "How long it played."}, "bytes": INTEGER})
 
 
 
@@ -91,7 +112,10 @@ CORE = [
      "Which way up the robot's head is (upright, upside_down, face_up, face_down, on_left_side, "
      "on_right_side or tilted), whether it is moving, and the raw accelerometer (g) and gyroscope "
      "(degrees per second) readings.",
-     None, None),
+     None, None,
+     answer({"orientation": {"type": "string", "enum": ["upright", "upside_down", "face_up", "face_down", "on_left_side",
+                                                        "on_right_side", "tilted"]},
+             "moving": BOOL, "accel_g": XYZ, "gyro_dps": XYZ})),
 ]
 
 ANGLES = ('"yaw":{"type":"number","minimum":-120,"maximum":120,"description":"Degrees: 0 straight ahead, negative to the robot\'s left."},'
@@ -106,7 +130,8 @@ LATER = [
      "5 degrees short; servos_silent when they do not answer even after the robot power-cycles "
      "them. speed 150 (a natural look) if left out.",
      None,
-     '{' + ANGLES + '}'),
+     '{' + ANGLES + '}',
+     answer(MEASURED["properties"], REVIVED)),
     ("head.play",
      "Play head frames you compose: each frame sends the head to its yaw and/or pitch and lasts ms "
      "(80 to 3000; 20 s in all). Use it for nods, shakes and dances. Answers once the head rests, "
@@ -116,24 +141,29 @@ LATER = [
      '{"frames":{"type":"array","minItems":1,"maxItems":40,"items":{"type":"object","properties":{'
      + ANGLES + ',"ms":{"type":"integer","minimum":80,"maximum":3000}},"required":["ms"],'
      '"additionalProperties":false}}}',
-     None),
+     None,
+     answer({"duration_ms": INTEGER,
+             "reached": {"type": "array", "items": {**MEASURED, "description": "null where the servos did not answer."}},
+             "rest": MEASURED}, REVIVED)),
 ]
 
 BODY = [
     ("head.stop",
      "Stop the head where it is; a head.move or head.play under way answers stopped.",
-     None, None),
+     None, None, DONE),
     ("head.status",
      "Where the head points now, as the servos measure it (yaw and pitch in degrees; servos_silent "
      "when they do not answer), whether it is moving, and whether the servos are holding it.",
-     None, None),
+     None, None,
+     answer({**MEASURED["properties"], "moving": BOOL, "holding": BOOL}, REVIVED)),
     ("lights.set",
      "Light the 12 LEDs in the robot's body in one colour. They stay on until changed or turned off.",
      '{"color":{"type":"string","minLength":3,"maxLength":7,"description":"red, orange, yellow, green, cyan, blue, purple, pink, white, warm, or #rrggbb."}}',
-     '{"brightness":{"type":"integer","minimum":1,"maximum":100,"description":"Percent, 1 to 100; 40 if left out."}}'),
+     '{"brightness":{"type":"integer","minimum":1,"maximum":100,"description":"Percent, 1 to 100; 40 if left out."}}',
+     DONE),
     ("lights.off",
      "Turn off the LEDs in the robot's body.",
-     None, None),
+     None, None, DONE),
 ]
 
 # Commands every board with the full UI registers (impo_commands.c COMMON).
@@ -142,22 +172,29 @@ UI = [
      "Show a short caption on the robot's screen, for something the person wants written down. It "
      "stays until the next thing the robot shows.",
      '{"text":{"type":"string","minLength":1,"maxLength":200,"description":"1 to 200 characters."}}',
-     None),
+     None, DONE),
     ("avatar.cheer",
      "Make the face on the screen cheer for a moment.",
-     None, None),
+     None, None, DONE),
     ("speaker.play_url",
      "Play a sound file from a public http(s) URL: an MP3 or a 16-bit PCM WAV, up to 110 seconds. "
      "Answers once it has finished playing (played_ms), or why it did not play.",
      '{"url":{"type":"string","minLength":8,"maxLength":512,"description":"A direct link to the file itself."}}',
-     None),
+     None, PLAYED),
     ("speaker.set_volume",
      "Set the speaker volume.",
      '{"percent":{"type":"integer","minimum":0,"maximum":100,"description":"0 to 100."}}',
-     None),
+     None, answer({"percent": INTEGER})),
     ("speaker.stop",
-     "Stop what the speaker is playing.",
-     None, None),
+     "Stop what the speaker is playing; a speaker.play_url or speaker.say under way answers stopped.",
+     None, None, DONE),
+    ("speaker.status",
+     "What the speaker is doing now (idle, fetching, playing, or failed and why), the last URL it "
+     "played, the volume and whether the speaker is on.",
+     None, None,
+     answer({"status": {"type": "string", "enum": ["idle", "fetching", "playing", "failed"]},
+             "volume_percent": INTEGER, "speaker_on": BOOL},
+            {"error": TEXT, "last_url": TEXT})),
 ]
 
 # Commands Impo's gateway carries out with the robot's own (they are not in the
@@ -167,8 +204,8 @@ CLOUD = [
     ("speaker.say",
      "Say something out loud in Impo's voice, outside a reply (a reminder, a greeting). Answers once "
      "it has been said (played_ms), or why it was not.",
-     '{"text":{"type":"string","minLength":1,"maxLength":1000,"description":"What to say, any language."}}',
-     None),
+     '{"text":{"type":"string","minLength":1,"maxLength":300,"description":"What to say, any language; about a minute at most."}}',
+     None, PLAYED),
 ]
 
 # Link's own commands (main/noise_control.cpp), which every ESP32 gadget registers,
@@ -176,10 +213,16 @@ CLOUD = [
 LINK = [
     ("camera.capture",
      "Take one photo with the camera under the robot's screen of whatever its head faces, as a "
-     "320x240 JPEG. Returned only when this command is explicitly invoked.", None, None),
+     "320x240 JPEG. Returned only when this command is explicitly invoked.", None, None,
+     answer({"photo": answer({"fileId": TEXT, "path": {"type": "string", "description": "In your sandbox."},
+                              "mediaType": TEXT, "sizeBytes": INTEGER})})),
     ("device.health",
      "The robot's battery level, whether it is charging, uptime, memory and the Wi-Fi network.",
-     None, None),
+     None, None,
+     answer({"overall": {"type": "string", "enum": ["ok"]},
+             "metrics": answer({"battery_pct": INTEGER, "battery_mv": INTEGER, "charging": BOOL, "usb_power": BOOL,
+                                "uptime_seconds": INTEGER, "heap_free_internal": INTEGER, "heap_free_psram": INTEGER}),
+             "network_ssid": TEXT, "version": TEXT})),
     ("device.set_name",
      "Rename the robot: the name the person calls it by. 1 to 32 characters. It reconnects under the "
      "new name a moment later.",
@@ -203,7 +246,8 @@ def main():
         sys.exit(f"{missing} are not in {COMMON.name} COMMON")
     if "speaker.play" not in common:
         sys.exit("speaker.say needs speaker.play in " + COMMON.name)
-    commands = [command(*c) for c in CORE + BODY + LATER + UI + CLOUD + LINK]
+    # By name, so a kind's commands (head.*, speaker.*) sit together where people read them.
+    commands = sorted((command(*c) for c in CORE + BODY + LATER + UI + CLOUD + LINK), key=lambda c: c["name"])
     names = [c["name"] for c in commands]
     assert len(names) == len(set(names)) and len(commands) <= 64
     assert len(SYSTEM_PROMPT) <= 4000, len(SYSTEM_PROMPT)

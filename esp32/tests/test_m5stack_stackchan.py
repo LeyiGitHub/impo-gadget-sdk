@@ -34,7 +34,9 @@ class StackChanManifestTest(unittest.TestCase):
     def test_commands(self):
         names = [c["name"] for c in self.manifest["commands"]]
         own = registered(CORES3 / "board.c") + registered(STACKCHAN / "stackchan.cpp")
-        self.assertEqual(names[:len(own)], own)
+        self.assertLessEqual(set(own), set(names))
+        self.assertEqual(names, sorted(names))   # a kind's commands sit together where people read them
+        self.assertTrue(all("result" in c for c in self.manifest["commands"] if c["name"] != "device.set_name"))
         self.assertIn("camera.capture", names)
         self.assertEqual(len(names), len(set(names)))
         self.assertLessEqual(len(self.manifest["systemPrompt"]), 4000)

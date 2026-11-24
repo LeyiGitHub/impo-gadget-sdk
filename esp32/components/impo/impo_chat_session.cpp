@@ -71,6 +71,7 @@ extern "C" {
 #include "impo_link.h"
 #include "impo_settings.h"
 #include "impo_sound.h"
+#include "impo_wav.h"
 #include "impo_wifi.h"
 }
 #include "impo_chat_priv.h"
@@ -263,6 +264,8 @@ struct turn_t {
     int down_rate;
     enum : uint8_t { F_UNKNOWN, F_MP3, F_WAV } format;   /* told apart by the first bytes */
     int wav_channels;
+    size_t wav_left;         /* bytes of the WAV's data chunk not yet played (SIZE_MAX: not said) */
+    size_t wav_dropped;      /* bytes after it */
 };
 
 /* 10 KB, most of it the MP3 decoder: in PSRAM on boards that let static data go
@@ -1579,38 +1582,6 @@ static int64_t request_speech(const char *text, int msg)
     return id;
 }
 
-/*
- * A WAV's header: the sample rate and channel count, and how many bytes to
- * skip to the samples. False until enough has arrived to read it; a header
- * that isn't 16-bit PCM leaves the stream treated as empty.
- */
-static bool wav_header(const uint8_t *data, size_t len, int *rate, int *channels, size_t *skip)
-{
-    if (len < 12 || memcmp(data, "RIFF", 4) || memcmp(data + 8, "WAVE", 4)) {
-        return false;
-    }
-    size_t off = 12;
-    bool fmt = false;
-    while (off + 8 <= len) {
-        uint32_t size = data[off + 4] | data[off + 5] << 8 | data[off + 6] << 16 | (uint32_t)data[off + 7] << 24;
-        if (!memcmp(data + off, "fmt ", 4)) {
-            if (off + 8 + 16 > len) {
-                return false;
-            }
-            int tag = data[off + 8] | data[off + 9] << 8;
-            *channels = data[off + 10] | data[off + 11] << 8;
-            *rate = data[off + 12] | data[off + 13] << 8 | data[off + 14] << 16 | (uint32_t)data[off + 15] << 24;
-            int bits = data[off + 22] | data[off + 23] << 8;
-            fmt = tag == 1 && bits == 16 && (*channels == 1 || *channels == 2) && *rate >= 8000 && *rate <= 48000;
-        } else if (!memcmp(data + off, "data", 4)) {
-            *skip = off + 8;
-            return fmt;
-        }
-        off += 8 + size + (size & 1);
-    }
-    return false;
-}
-
 /* ---- speaker.say ---- */
 
 static void say_drop(void)
@@ -1747,9 +1718,11 @@ static void play_wav(void)
     size_t off = 0;
     size_t frame_bytes = 2 * s_turn.wav_channels;
     size_t room_frames = MINIMP3_MAX_SAMPLES_PER_FRAME / 2;
-    while (s_turn.mp3_len - off >= frame_bytes &&
+    /* Only the data chunk is sound (impo_wav.h). */
+    size_t samples = s_turn.mp3_len < s_turn.wav_left ? s_turn.mp3_len : s_turn.wav_left;
+    while (samples - off >= frame_bytes &&
            xStreamBufferSpacesAvailable(s_out) >= (room_frames + 8) * sizeof(int16_t)) {
-        size_t frames = (s_turn.mp3_len - off) / frame_bytes;
+        size_t frames = (samples - off) / frame_bytes;
         if (frames > room_frames) {
             frames = room_frames;
         }
@@ -1767,16 +1740,27 @@ static void play_wav(void)
         }
         s_turn.pcm_out += n;
     }
+    if (s_turn.wav_left != SIZE_MAX) {
+        s_turn.wav_left -= off;
+        if (s_turn.wav_left < frame_bytes) {
+            s_turn.wav_dropped += s_turn.mp3_len - off;
+            off = s_turn.mp3_len;   /* the samples are done: what follows isn't sound, drop it as it comes */
+        }
+    }
     if (off) {
         memmove(s_turn.mp3, s_turn.mp3 + off, s_turn.mp3_len - off);
         s_turn.mp3_len -= off;
     }
+    samples = s_turn.mp3_len < s_turn.wav_left ? s_turn.mp3_len : s_turn.wav_left;
     msg_t &m = s_turn.msgs[s_turn.tts_msg];
     if (s_turn.mp3_ended) {
         /* All of it is here: what's played plus what's left in the buffer. */
-        m.pcm_frames = s_turn.pcm_out - m.pcm_start + (uint32_t)((uint64_t)(s_turn.mp3_len / frame_bytes) * MIC_RATE / s_turn.down_rate);
+        m.pcm_frames = s_turn.pcm_out - m.pcm_start + (uint32_t)((uint64_t)(samples / frame_bytes) * MIC_RATE / s_turn.down_rate);
     }
-    if (s_turn.mp3_ended && s_turn.mp3_len < frame_bytes) {
+    if (s_turn.mp3_ended && samples < frame_bytes) {
+        if (s_turn.wav_dropped) {
+            ESP_LOGI(TAG, "reply audio: %u bytes after the samples dropped", (unsigned)s_turn.wav_dropped);
+        }
         m.pcm_frames = s_turn.pcm_out - m.pcm_start;
         m.tts = TTS_FINISHED;
         s_turn.tts_msg = -1;
@@ -1798,9 +1782,8 @@ static void decode(void)
             return;
         }
         if (!memcmp(s_turn.mp3, "RIFF", 4)) {
-            int rate = 0, channels = 0;
-            size_t skip = 0;
-            if (!wav_header(s_turn.mp3, s_turn.mp3_len, &rate, &channels, &skip)) {
+            impo_wav_t wav;
+            if (!impo_wav_header(s_turn.mp3, s_turn.mp3_len, &wav)) {
                 if (s_turn.mp3_ended || s_turn.mp3_len >= 256) {
                     ESP_LOGW(TAG, "speech is not 16-bit PCM WAV");
                     s_turn.mp3_len = 0;
@@ -1809,13 +1792,15 @@ static void decode(void)
                 }
                 return;
             }
-            ESP_LOGI(TAG, "reply audio: WAV %d Hz, %d ch", rate, channels);
+            ESP_LOGI(TAG, "reply audio: WAV %d Hz, %d ch", wav.rate, wav.channels);
             s_turn.format = turn_t::F_WAV;
-            s_turn.wav_channels = channels;
-            s_turn.down_rate = rate;
-            resampler_init(&s_turn.down, rate, MIC_RATE);
-            memmove(s_turn.mp3, s_turn.mp3 + skip, s_turn.mp3_len - skip);
-            s_turn.mp3_len -= skip;
+            s_turn.wav_channels = wav.channels;
+            s_turn.wav_left = wav.data_bytes;
+            s_turn.wav_dropped = 0;
+            s_turn.down_rate = wav.rate;
+            resampler_init(&s_turn.down, wav.rate, MIC_RATE);
+            memmove(s_turn.mp3, s_turn.mp3 + wav.skip, s_turn.mp3_len - wav.skip);
+            s_turn.mp3_len -= wav.skip;
         } else {
             s_turn.format = turn_t::F_MP3;
         }

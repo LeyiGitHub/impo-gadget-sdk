@@ -27,6 +27,7 @@
 #include "minimp3.h"
 
 #include "impo_audio.h"
+#include "impo_wav.h"
 
 static const char *TAG = "impo_sound";
 
@@ -107,34 +108,6 @@ static bool put(unsigned gen, const int16_t *pcm, size_t frames)
     return true;
 }
 
-/* A WAV header's rate, channels and where the samples start; false until enough has arrived. */
-static bool wav_header(const uint8_t *data, size_t len, int *rate, int *channels, size_t *skip)
-{
-    if (len < 12 || memcmp(data, "RIFF", 4) || memcmp(data + 8, "WAVE", 4)) {
-        return false;
-    }
-    size_t off = 12;
-    bool fmt = false;
-    while (off + 8 <= len) {
-        uint32_t size = data[off + 4] | data[off + 5] << 8 | data[off + 6] << 16 | (uint32_t)data[off + 7] << 24;
-        if (!memcmp(data + off, "fmt ", 4)) {
-            if (off + 8 + 16 > len) {
-                return false;
-            }
-            int tag = data[off + 8] | data[off + 9] << 8;
-            *channels = data[off + 10] | data[off + 11] << 8;
-            *rate = data[off + 12] | data[off + 13] << 8 | data[off + 14] << 16 | (uint32_t)data[off + 15] << 24;
-            int bits = data[off + 22] | data[off + 23] << 8;
-            fmt = tag == 1 && bits == 16 && (*channels == 1 || *channels == 2) && *rate >= 8000 && *rate <= 48000;
-        } else if (!memcmp(data + off, "data", 4)) {
-            *skip = off + 8;
-            return fmt;
-        }
-        off += 8 + size + (size & 1);
-    }
-    return false;
-}
-
 /*
  * One sound: bytes from s_in until the producer ends it, decoded as they
  * come. s_buf holds what the decoder hasn't consumed yet (an MP3 frame is
@@ -145,6 +118,8 @@ static void decode_one(unsigned gen)
     enum { F_UNKNOWN, F_MP3, F_WAV } format = F_UNKNOWN;
     resampler_t rs;
     int rate = 0, channels = 1;
+    size_t left = SIZE_MAX;   /* bytes of the WAV's data chunk not yet played */
+    size_t dropped = 0;       /* bytes after it */
     size_t have = 0;
     bool ended = false;
     int frames = 0;
@@ -168,8 +143,8 @@ static void decode_one(unsigned gen)
                 continue;
             }
             if (have >= 4 && !memcmp(s_buf, "RIFF", 4)) {
-                size_t skip = 0;
-                if (!wav_header(s_buf, have, &rate, &channels, &skip)) {
+                impo_wav_t wav;
+                if (!impo_wav_header(s_buf, have, &wav)) {
                     if (ended || have >= 256) {
                         set_state("failed", "not 16-bit PCM WAV");
                         return;
@@ -177,9 +152,12 @@ static void decode_one(unsigned gen)
                     continue;
                 }
                 format = F_WAV;
+                rate = wav.rate;
+                channels = wav.channels;
+                left = wav.data_bytes;
                 resampler_init(&rs, rate, OUT_RATE);
-                memmove(s_buf, s_buf + skip, have - skip);
-                have -= skip;
+                memmove(s_buf, s_buf + wav.skip, have - wav.skip);
+                have -= wav.skip;
                 ESP_LOGI(TAG, "%s: WAV %d Hz, %d ch", s_source, rate, channels);
             } else {
                 format = F_MP3;
@@ -189,7 +167,7 @@ static void decode_one(unsigned gen)
         size_t used = 0;
         if (format == F_WAV) {
             size_t frame_bytes = 2 * channels;
-            size_t n = have / frame_bytes;
+            size_t n = (have < left ? have : left) / frame_bytes;
             if (n > MINIMP3_MAX_SAMPLES_PER_FRAME / 2) {
                 n = MINIMP3_MAX_SAMPLES_PER_FRAME / 2;
             }
@@ -204,6 +182,13 @@ static void decode_one(unsigned gen)
                 return;
             }
             frames += n;
+            if (left != SIZE_MAX) {
+                left -= used;
+                if (left < frame_bytes) {
+                    used = have;   /* the samples are done: what follows isn't sound, drop it as it comes */
+                    dropped += have - n * frame_bytes;
+                }
+            }
         } else {
             /* Keep the hold back until the end, so a frame isn't cut short. */
             size_t avail = ended ? have : have > MP3_HOLD ? have - MP3_HOLD : 0;
@@ -242,7 +227,7 @@ static void decode_one(unsigned gen)
         if (!frames) {
             set_state("failed", format == F_MP3 ? "not an MP3 this gadget can decode" : "empty sound");
         } else {
-            ESP_LOGI(TAG, "%s: decoded", s_source);
+            ESP_LOGI(TAG, "%s: decoded, %u bytes after the samples dropped", s_source, (unsigned)dropped);
         }
     }
 }

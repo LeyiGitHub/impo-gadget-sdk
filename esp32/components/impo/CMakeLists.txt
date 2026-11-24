@@ -43,7 +43,8 @@ if(CONFIG_IMPO_ENABLED)
         "impo_link.c"
         "impo_ble.c"
         "impo_commands.c"
-        "impo_sound.c")
+        "impo_sound.c"
+        "impo_wav.c")
     if(CONFIG_IMPO_HATCH)
         list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp")
         list(APPEND embed "test_reply.mp3")   # impo_hatch_mp3_selftest
@@ -108,7 +109,7 @@ if(CONFIG_IMPO_ENABLED)
 elseif(CONFIG_HOMEHUB_VOICE)
     # The Voice PE board uses just the Hatch voice session; the project's main/
     # voice_impo_chat.c stands in for the Impo settings, Wi-Fi and Link hooks.
-    list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp" "impo_chat_text.c" "impo_text.c")
+    list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp" "impo_chat_text.c" "impo_text.c" "impo_wav.c")
     list(APPEND embed "test_reply.mp3")
 endif()
 

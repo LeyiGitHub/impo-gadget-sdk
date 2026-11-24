@@ -164,6 +164,7 @@ int main(void) {
 #define nullptr NULL
 #define CONFIG_HOMEHUB_TUNNEL 1
 static bool enabled;
+#define NOISE_CTRL_WAKEUP_SUPPORTED enabled
 bool ota_is_enabled(void) { return enabled; }
 static esp_app_desc_t app = { .version = "999.0.0" };
 const esp_app_desc_t *esp_app_get_description(void) { return &app; }
@@ -204,6 +205,7 @@ int main(void) {
                 self.assertEqual(commands["device.health"], {})
                 self.assertEqual(commands["device.discover"], {"timeout_ms": 90000})
                 self.assertEqual(params["version"], "999.0.0")
+                self.assertEqual(params["is_wakeup_supported"], enabled)
                 # The session's handshake hash reaches attestation unchanged.
                 self.assertEqual(params.get("attest"), "seen" if enabled else None)
                 # Only a unit that did not attest names a product.

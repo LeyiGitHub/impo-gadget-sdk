@@ -2171,10 +2171,12 @@ static void handle(const cmd_t &cmd)
     case CMD_WAKE:   /* only ends hatch_task's resting wait */
         break;
     case CMD_SAY:
-        if (s_conn.session) {
+        /* The session closes after IDLE_CLOSE_US unused; like a voice turn, a
+         * say connects again first rather than dropping the speech. */
+        if (ensure_connected()) {
             say_begin(cmd.text);
         } else {
-            ESP_LOGW(TAG, "say: not connected");
+            ESP_LOGW(TAG, "say: can't reach Impo, the speech is dropped");
         }
         free(cmd.text);
         break;

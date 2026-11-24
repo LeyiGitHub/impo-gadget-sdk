@@ -95,16 +95,16 @@ int main(void)
     where_body = CN;
     endpoint("gadgets.impo.ai", "gadget.itoy.cn", 9443);
     assert(where_calls == 1);
-    assert(strcmp(last_url, "https://gadget.itoy.cn:9443/where") == 0);
+    assert(strcmp(last_url, "https://gadget.itoy.cn:9443/where?name=gw.itoy.cn") == 0);
     endpoint("", "gadget.itoy.cn", 9443);
     endpoint(NULL, "gadget.itoy.cn", 9443);
     url("https://gadgets.impo.ai", "https://gadget.itoy.cn:9443");
     url("https://gadgets.impo.ai/fetch_vms", "https://gadget.itoy.cn:9443/fetch_vms");
     url("https://gadgets.impo.ai?x=1", "https://gadget.itoy.cn:9443?x=1");
     assert(where_calls == 1);
-    // The relay never decrypts: TLS name and Host header stay gadgets.impo.ai.
-    assert(strcmp(impo_cloud_route_tls_name("https://gadget.itoy.cn:9443/fetch_vms"), "gadgets.impo.ai") == 0);
-    assert(strcmp(impo_cloud_route_tls_name("gadget.itoy.cn"), "gadgets.impo.ai") == 0);
+    // The relay never decrypts; through it TLS and Host name the filed host.
+    assert(strcmp(impo_cloud_route_tls_name("https://gadget.itoy.cn:9443/fetch_vms"), "gw.itoy.cn") == 0);
+    assert(strcmp(impo_cloud_route_tls_name("gadget.itoy.cn"), "gw.itoy.cn") == 0);
     assert(impo_cloud_route_tls_name("https://gadgets.impo.ai/fetch_vms") == NULL);
     assert(impo_cloud_route_tls_name("https://gadget.itoy.cn.example.com/x") == NULL);
     assert(impo_cloud_route_tls_name("dev.example.com") == NULL);

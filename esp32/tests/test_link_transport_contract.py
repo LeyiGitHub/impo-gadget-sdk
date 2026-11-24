@@ -172,7 +172,7 @@ class LinkTransportContractTest(unittest.TestCase):
         # CR/LF rejection, and 401/403 authentication failures. Check that the
         # transport uses those helpers and refuses invalid requests before I/O.
         self.assertIn("int req_len = noise_upgrade_build_request(", upgrade)
-        self.assertIn("NOISE_PATH, s_vm_id, s_noise_host,", upgrade)
+        self.assertIn("NOISE_PATH, s_vm_id, s_noise_name,", upgrade)
         self.assertIn('s_auth_token ? s_auth_token : "", req, req_cap)', upgrade)
         invalid_request = _function_body(upgrade, "if (req_len <= 0)")
         self.assertIn("return NOISE_UPGRADE_FAILED;", invalid_request)

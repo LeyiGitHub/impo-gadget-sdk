@@ -531,9 +531,12 @@ Users never see the name Hatch.
 - Every connection to `gadgets.impo.ai` (Link Noise, the chat session, the VM
   and account APIs) goes through `impo_cloud_route`: its endpoint or URL for
   the host, then a report of whether the relay answered. The relay passes TLS
-  through unread, so the TLS name (`common_name`) and the Host header stay
-  `gadgets.impo.ai` (`impo_cloud_route_tls_name` for an HTTP client). A new
-  cloud client does the same, or it stays on Cloudflare in mainland China. They ignore
+  through unread. Through it the TLS name (`common_name`) and the Host header
+  are `impo_cloud_route_tls_name()` of the dialed address (`gw.itoy.cn`, under
+  the relay's ICP-filed domain: providers there reset `gadgets.impo.ai`), and
+  `gadgets.impo.ai` otherwise; Cloudflare refuses a Host that differs from the
+  TLS name. A new cloud client does the same, or it stays on Cloudflare in
+  mainland China. They ignore
   `api_url`: only older firmware reads it, and that firmware adds `/hatch/`
   itself. Keep saving it so a device flashed back to older firmware still works.
 - `hatch` stays only where the server or the Impo app depends on it. Don't

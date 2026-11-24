@@ -4,4 +4,5 @@
 #define CONFIG_IMPO_CHINA_RELAY 1
 #define CONFIG_IMPO_CHINA_RELAY_HOST "gadget.itoy.cn"
 #define CONFIG_IMPO_CHINA_RELAY_PORT 9443
+#define CONFIG_IMPO_CHINA_RELAY_TLS_NAME "gw.itoy.cn"
 #endif

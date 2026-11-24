@@ -24,7 +24,9 @@ static const char *TAG = "impo.route";
 #define RELAY_PORT CONFIG_IMPO_CHINA_RELAY_PORT
 #define STR2(x) #x
 #define STR(x) STR2(x)
-#define WHERE_URL "https://" RELAY_HOST ":" STR(CONFIG_IMPO_CHINA_RELAY_PORT) "/where"
+#define RELAY_TLS_NAME CONFIG_IMPO_CHINA_RELAY_TLS_NAME
+// The relay says "CN" only to a gadget that names a host it can carry.
+#define WHERE_URL "https://" RELAY_HOST ":" STR(CONFIG_IMPO_CHINA_RELAY_PORT) "/where?name=" RELAY_TLS_NAME
 
 #define DECISION_US (12LL * 3600 * 1000000)  // ask again at least twice a day
 #define RETRY_US (5LL * 60 * 1000000)        // after a failed /where
@@ -133,7 +135,7 @@ static route_t decide(void)
         if (status == 200 && strstr(body, "\"country\":\"CN\"")) {
             s_route = ROUTE_RELAY;
             s_expires_us = now + DECISION_US;
-            ESP_LOGI(TAG, "in mainland China: Impo through %s:%d", RELAY_HOST, RELAY_PORT);
+            ESP_LOGI(TAG, "in mainland China: Impo through %s:%d as " RELAY_TLS_NAME, RELAY_HOST, RELAY_PORT);
         } else if (status == 200 && strstr(body, "\"country\":")) {
             s_route = ROUTE_CLOUD;
             s_expires_us = now + DECISION_US;
@@ -189,7 +191,7 @@ void impo_cloud_route_report(const char *host, bool ok)
 
 const char *impo_cloud_route_tls_name(const char *url_or_host)
 {
-    return is_relay(url_or_host) ? IMPO_CLOUD_HOST : NULL;
+    return is_relay(url_or_host) ? RELAY_TLS_NAME : NULL;
 }
 
 void impo_cloud_route_reset(void)

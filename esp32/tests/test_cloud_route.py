@@ -46,13 +46,19 @@ class CloudRouteHarnessTest(unittest.TestCase):
         self.assertIn("impo_cloud_route_endpoint(s_noise_host, s_noise_peer,", noise)
         self.assertIn("esp_tls_conn_new_sync(s_noise_peer,", noise)
         self.assertIn("impo_cloud_route_report(s_noise_peer, r == 1);", noise)
-        # The relay passes TLS through: the name and Host stay the gateway's.
-        self.assertIn("cfg.common_name = s_noise_host;", noise)
-        self.assertIn("NOISE_PATH, s_vm_id, s_noise_host,", noise)
+        # The relay passes TLS through: TLS and Host carry the route's name
+        # for the dialed address (the relay's TLS name), else the host.
+        self.assertIn("s_noise_name = impo_cloud_route_tls_name(s_noise_peer);", noise)
+        self.assertIn("cfg.common_name = s_noise_name;", noise)
+        self.assertIn("NOISE_PATH, s_vm_id, s_noise_name,", noise)
         self.assertIn("impo_cloud_route_endpoint(s_host, s_peer,", chat)
         self.assertIn("esp_tls_conn_new_sync(s_peer,", chat)
-        self.assertIn("cfg.common_name = s_host;", chat)
-        self.assertIn("id, s_host, token);", chat)
+        self.assertIn("s_name = impo_cloud_route_tls_name(s_peer);", chat)
+        self.assertIn("cfg.common_name = s_name;", chat)
+        self.assertIn("id, s_name, token);", chat)
+        for source, name in ((noise, "s_noise_name"), (chat, "s_name")):
+            self.assertLess(source.index(name + " = impo_cloud_route_tls_name("),
+                            source.index("cfg.common_name = " + name + ";"))
         self.assertIn("impo_cloud_route_url(s_api_base, base, sizeof(base));", api)
         self.assertIn("impo_cloud_route_report(url,", api)
         for source in (api, account):

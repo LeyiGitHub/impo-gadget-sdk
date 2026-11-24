@@ -56,7 +56,7 @@ static int fetch(const char *auth, resp_t *r)
 {
     char url[96];
     impo_cloud_route_url(FETCH_URL, url, sizeof(url));
-    /* On the mainland China relay the TLS still ends at gadgets.impo.ai. */
+    /* On the mainland China relay the TLS and Host name the relay's TLS name. */
     const char *tls_name = impo_cloud_route_tls_name(url);
     esp_http_client_config_t cfg = {
         .url = url,

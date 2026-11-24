@@ -31,7 +31,7 @@ struct esp_tls_t {};
 static bool s_running = true;
 static const char *s_auth_token = "synthetic";
 static const char *s_vm_id = "synthetic-vm";
-static const char *s_noise_host = "synthetic.example";
+static const char *s_noise_name = "synthetic.example";   // the TLS and Host name connect chose
 #define NOISE_PATH "/v1/noise"
 #define ESP_TLS_ERR_SSL_WANT_READ (-6900)
 #define ESP_TLS_ERR_SSL_WANT_WRITE (-6901)

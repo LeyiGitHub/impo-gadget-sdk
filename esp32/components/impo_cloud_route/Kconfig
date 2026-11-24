@@ -7,9 +7,10 @@ config IMPO_CHINA_RELAY
         From mainland China, connections to gadgets.impo.ai (Cloudflare) often
         fail or stall. With this on, the gadget asks the relay's /where once per
         Wi-Fi address; when the relay says the gadget's public address is in
-        mainland China, the gadget dials the relay instead. The relay copies the
-        bytes of TLS connections named gadgets.impo.ai to gadgets.impo.ai:443
-        without decrypting them; the TLS session stays with Cloudflare.
+        mainland China, the gadget dials the relay instead and names
+        IMPO_CHINA_RELAY_TLS_NAME in its TLS and Host header. The relay copies
+        the bytes of those TLS connections to Cloudflare without decrypting
+        them; the TLS session stays with Cloudflare.
         A gateway host other than gadgets.impo.ai is always used as given.
 
 config IMPO_CHINA_RELAY_HOST
@@ -22,5 +23,17 @@ config IMPO_CHINA_RELAY_PORT
     depends on IMPO_CHINA_RELAY
     range 1 65535
     default 9443
+
+config IMPO_CHINA_RELAY_TLS_NAME
+    string "Name the gadget's TLS and Host header carry through the relay"
+    depends on IMPO_CHINA_RELAY
+    default "gw.itoy.cn"
+    help
+        Mainland China providers reset TLS connections that name a domain
+        without an ICP filing for the server they reach, gadgets.impo.ai
+        among them. So through the relay the gadget names a host under the
+        relay's filed domain, which Cloudflare serves as a custom hostname of
+        the gateway (gw.itoy.cn CNAME saas.impo.ai). The relay forwards only
+        this name, and /where says "CN" only to a gadget that sends it.
 
 endmenu

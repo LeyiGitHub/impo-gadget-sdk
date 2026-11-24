@@ -16,6 +16,8 @@ get_filename_component(SDK_ROOT ${REPO_ROOT}/.. ABSOLUTE)
 set(UPSTREAM_MAIN ${SDK_ROOT}/esp32/main)
 set(UPSTREAM_IMPO ${SDK_ROOT}/esp32/components/impo)
 set(UPSTREAM_NOISE_CORE ${SDK_ROOT}/esp32/components/noise_core)
+# Shared route policy; only its implementation sees ESP-IDF compatibility headers.
+listenai_include_directories(${SDK_ROOT}/esp32/components/impo_cloud_route/include)
 
 # memap.h is read by the SDK linker scripts from the application directory.
 listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})

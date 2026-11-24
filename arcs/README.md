@@ -24,6 +24,12 @@ First board: ARCS-MINI V2.1 robot dog (`boards/arcs_mini_v2_1`).
 | features | `features/pairing` | Impo BLE setup protocol v5 (community mode) |
 | board | `boards/<board>/gadget` | one board file plus the drivers only that hardware has |
 
+## Cloud routing
+
+ARCS uses the shared official mainland route policy, enabled by
+`CONFIG_IMPO_CHINA_RELAY`. See [cloud routing](docs/CLOUD_ROUTE.md) for TLS
+identity, direct fallback, host tests and the physical validation limits.
+
 ## What the robot dog does (CAPABILITIES.md)
 
 | Area | Commands / behaviour | Layer |

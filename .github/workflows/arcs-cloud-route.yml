@@ -1,0 +1,23 @@
+name: ARCS cloud route host checks
+on:
+  pull_request:
+    paths:
+      - 'arcs/**'
+      - 'esp32/components/impo_cloud_route/**'
+      - 'esp32/tests/*cloud_route*'
+      - '.github/workflows/arcs-cloud-route.yml'
+  push:
+    branches: [main, codex/arcs-official-cloud-route]
+    paths:
+      - 'arcs/**'
+      - 'esp32/components/impo_cloud_route/**'
+      - 'esp32/tests/*cloud_route*'
+      - '.github/workflows/arcs-cloud-route.yml'
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh arcs/tests/host/run_cloud_route.sh

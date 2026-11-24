@@ -98,6 +98,12 @@ static void log_error(const char *what, int ret)
 
 plat_tls_t *plat_tls_connect(const char *host, uint16_t port, uint32_t timeout_ms, int *err)
 {
+    return plat_tls_connect_named(host, port, NULL, timeout_ms, err);
+}
+
+plat_tls_t *plat_tls_connect_named(const char *host, uint16_t port, const char *tls_name,
+                                   uint32_t timeout_ms, int *err)
+{
     int ret;
     if (err != NULL) {
         *err = 0;
@@ -158,7 +164,7 @@ plat_tls_t *plat_tls_connect(const char *host, uint16_t port, uint32_t timeout_m
     mbedtls_ssl_conf_read_timeout(&t->conf, timeout_ms);
 
     if ((ret = mbedtls_ssl_setup(&t->ssl, &t->conf)) != 0 ||
-        (ret = mbedtls_ssl_set_hostname(&t->ssl, host)) != 0) {
+        (ret = mbedtls_ssl_set_hostname(&t->ssl, tls_name ? tls_name : host)) != 0) {
         log_error("setup", ret);
         goto fail;
     }

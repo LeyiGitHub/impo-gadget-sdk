@@ -22,6 +22,7 @@
 #include "shell.h"
 
 #include "platform_arcs.h"
+#include "impo_cloud_route.h"
 
 #define TAG "plat_wifi"
 #include "lisa_log.h"
@@ -44,6 +45,9 @@ static void dhcp_status_cb(int vif_idx, bool success, uint32_t ip, uint32_t mask
         return;
     }
     if (success) {
+        if (s_wifi.ip != ip) {
+            impo_cloud_route_reset(); /* Atomic only; /where runs in the requesting task. */
+        }
         s_wifi.ip = ip;
         LISA_LOGI(TAG, "got ip %u.%u.%u.%u gw %u.%u.%u.%u",
                   ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, ip >> 24,

@@ -66,6 +66,12 @@ void Hal::setServoPowerEnabled(bool enabled)
     _io_expander->digitalWrite(0, enabled ? true : false);
 }
 
+/* Impo: whether the PY32's latch for the servos' power reads on (false after the PY32 reset). */
+bool Hal::servoPowerLatched()
+{
+    return _io_expander && _io_expander->getWriteValue(0);
+}
+
 void Hal::setRgbColor(uint8_t index, uint8_t r, uint8_t g, uint8_t b)
 {
     if (!_io_expander) {

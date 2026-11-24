@@ -23,6 +23,8 @@ typedef struct {
     esp_err_t (*start)(i2c_master_bus_handle_t bus);
     const impo_command_t *commands;
     int command_count;
+    const impo_later_command_t *later_commands;
+    int later_command_count;
     const char *features;               /* impo_board_t.features */
 } m5stack_cores3_body_t;
 

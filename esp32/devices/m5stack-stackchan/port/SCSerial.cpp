@@ -12,6 +12,10 @@
 
 #include "hal/drivers/FTServo_Arduino/src/SCSerial.h"
 
+#include <atomic>
+
+#include "hal_impo.h"
+
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -97,6 +101,15 @@ static int read_into(uart_port_t uart_num, unsigned char *nDat, int size, int wa
 	return uart_read_bytes(uart_num, nDat ? nDat + size : scratch, want, ticks);
 }
 
+/* Replies that did not arrive whole: a reading taken while this stays the
+ * same came from the servo itself (hal_impo.h). */
+static std::atomic<unsigned> s_short_reads{0};
+
+unsigned hal_impo_servo_short_reads(void)
+{
+	return s_short_reads.load();
+}
+
 /* Up to nLen bytes within TimeOut ms of the call. */
 int SCSerial::readSCS(unsigned char *nDat, int nLen, unsigned long TimeOut)
 {
@@ -117,7 +130,9 @@ int SCSerial::readSCS(unsigned char *nDat, int nLen, unsigned long TimeOut)
 		}
 		size += got;
 	}
-
+	if (size < nLen) {
+		s_short_reads++;
+	}
 	return size;
 }
 
@@ -136,7 +151,9 @@ int SCSerial::readSCS(unsigned char *nDat, int nLen)
 		}
 		size += got;
 	}
-
+	if (size < nLen) {
+		s_short_reads++;
+	}
 	return size;
 }
 

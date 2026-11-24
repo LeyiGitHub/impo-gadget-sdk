@@ -840,7 +840,7 @@ static void voice_task(void *arg)
                 pre_reset();
             }
             if (impo_sound_active()) {
-                /* A sound (speaker.say, speaker.play_url) streamed in: play it
+                /* A sound (speaker.play, speaker.play_url) streamed in: play it
                  * as it comes, a chunk at a time, keeping the speaker fed. */
                 static int16_t sound[IMPO_AUDIO_CHUNK];
                 static const int16_t quiet[IMPO_AUDIO_CHUNK];

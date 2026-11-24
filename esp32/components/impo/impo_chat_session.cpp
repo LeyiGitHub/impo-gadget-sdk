@@ -70,7 +70,6 @@ extern "C" {
 #include "impo_account_api.h"
 #include "impo_link.h"
 #include "impo_settings.h"
-#include "impo_sound.h"
 #include "impo_wav.h"
 #include "impo_wifi.h"
 }
@@ -132,12 +131,12 @@ static const char *TAG = "impo_chat_session";
 
 /* ---- Voice task <-> session task ---- */
 
-enum cmd_type_t : uint8_t { CMD_CONNECT, CMD_FORGET, CMD_BEGIN, CMD_END, CMD_CANCEL, CMD_TEXT, CMD_TEXT_CANCEL, CMD_WAKE, CMD_SAY };
+enum cmd_type_t : uint8_t { CMD_CONNECT, CMD_FORGET, CMD_BEGIN, CMD_END, CMD_CANCEL, CMD_TEXT, CMD_TEXT_CANCEL, CMD_WAKE };
 
 struct cmd_t {
     cmd_type_t type;
     uint32_t gen;
-    char *text;              /* CMD_TEXT, CMD_SAY: malloc'd, freed by the session task */
+    char *text;              /* CMD_TEXT: malloc'd, freed by the session task */
 };
 
 struct ev_t {
@@ -189,7 +188,7 @@ struct stream_t {
     int64_t id;
     kind_t kind;
     int status;
-    int msg;                 /* K_TTS: index into the turn's messages, or SAY_MSG */
+    int msg;                 /* K_TTS: index into the turn's messages */
     char *line;              /* NDJSON line / buffered body */
     size_t cap;              /* line's size: NDJSON_LINE_MAX, grown for long event lines */
     size_t len;
@@ -199,14 +198,6 @@ struct stream_t {
 #define MAX_STREAMS 6
 static stream_t s_streams[MAX_STREAMS];
 
-/*
- * speaker.say: a text spoken outside any turn. Its WAV streams from its own
- * K_TTS stream (msg SAY_MSG) into impo_sound as it arrives; the socket is
- * held off while that has no room (see poll_socket).
- */
-#define SAY_MSG (-2)
-#define SAY_POLL_ROOM (SCRATCH + 4096)   /* stop reading the socket below this much room */
-static int64_t s_say_id;                 /* the stream, or 0 */
 
 /* ---- The current turn ---- */
 
@@ -991,7 +982,7 @@ static void turn_reset_streams(void)
     send_reset(s_turn.dict_id);
     send_reset(s_turn.chat_id);
     for (auto &s : s_streams) {
-        if (s.kind == K_TTS && s.msg != SAY_MSG) {
+        if (s.kind == K_TTS) {
             send_reset(s.id);
         }
     }
@@ -1588,46 +1579,6 @@ static int64_t request_speech(const char *text, int msg)
     return id;
 }
 
-/* ---- speaker.say ---- */
-
-static void say_drop(void)
-{
-    if (s_say_id) {
-        send_reset(s_say_id);
-        close_stream(find_stream(s_say_id));
-        s_say_id = 0;
-    }
-}
-
-static void say_begin(const char *text)
-{
-    say_drop();
-    impo_sound_begin("say");
-    s_say_id = request_speech(text, SAY_MSG);
-    if (!s_say_id) {
-        ESP_LOGW(TAG, "say: the request could not be sent");
-        impo_sound_fail("Impo could not be asked");
-    }
-}
-
-static void say_data(const uint8_t *data, size_t len)
-{
-    if (!impo_sound_write(data, len, 50)) {
-        ESP_LOGW(TAG, "say: dropped %u bytes", (unsigned)len);
-    }
-}
-
-static void say_end(bool ok)
-{
-    s_say_id = 0;
-    if (!ok) {
-        ESP_LOGW(TAG, "say: no speech came back");
-        impo_sound_fail("no speech came back");
-    } else {
-        impo_sound_end(true);
-    }
-}
-
 static void start_tts(void)
 {
     if (s_turn.tts_msg >= 0) {
@@ -1976,9 +1927,7 @@ static void stream_data(stream_t *s, ConstByteSpan data)
         break;
     }
     case K_TTS:
-        if (s->msg == SAY_MSG) {
-            say_data(data.data(), data.size());
-        } else if (s->msg == s_turn.tts_msg) {
+        if (s->msg == s_turn.tts_msg) {
             tts_data(data.data(), data.size());
         }
         break;
@@ -2009,12 +1958,7 @@ static bool stream_end(stream_t *s, bool ok)
         }
         break;
     case K_TTS:
-        if (s->msg == SAY_MSG) {
-            close_stream(s);
-            say_end(ok);
-        } else {
-            tts_end(s, ok);
-        }
+        tts_end(s, ok);
         break;
     default:
         break;
@@ -2072,10 +2016,6 @@ static bool poll_socket(void)
     for (int budget = 0; budget < 8; budget++) {
         /* Hold off while the MP3 buffer is nearly full: TCP pushes back on the VM. */
         if (s_turn.tts_msg >= 0 && MP3_BUF - s_turn.mp3_len < MP3_POLL_ROOM) {
-            return true;
-        }
-        /* Likewise for a say's WAV, which impo_sound takes as it plays. */
-        if (s_say_id && impo_sound_room() < SAY_POLL_ROOM) {
             return true;
         }
         ssize_t n = ws_recv(s_conn.tls, s_conn.rx, SCRATCH, false);
@@ -2169,16 +2109,6 @@ static void handle(const cmd_t &cmd)
         }
         break;
     case CMD_WAKE:   /* only ends hatch_task's resting wait */
-        break;
-    case CMD_SAY:
-        /* The session closes after IDLE_CLOSE_US unused; like a voice turn, a
-         * say connects again first rather than dropping the speech. */
-        if (ensure_connected()) {
-            say_begin(cmd.text);
-        } else {
-            ESP_LOGW(TAG, "say: can't reach Impo, the speech is dropped");
-        }
-        free(cmd.text);
         break;
     }
 }
@@ -2385,17 +2315,6 @@ extern "C" void impo_hatch_text_turn(char *text)
         impo_hatch_console("error", "BUSY", nullptr);
         free(text);
     }
-}
-
-extern "C" bool impo_hatch_say(const char *text)
-{
-    char *copy = strdup(text);
-    cmd_t cmd{ CMD_SAY, 0, copy };
-    if (!copy || !s_cmds || !impo_hatch_configured() || xQueueSend(s_cmds, &cmd, pdMS_TO_TICKS(200)) != pdTRUE) {
-        free(copy);
-        return false;
-    }
-    return true;
 }
 
 extern "C" void impo_hatch_text_cancel(void)

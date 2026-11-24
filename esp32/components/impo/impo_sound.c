@@ -55,6 +55,9 @@ static atomic_bool s_ended;               /* the producer is done with the curre
 static atomic_bool s_ok;                  /* ... and it was whole */
 static atomic_bool s_decoding;            /* the decoder is working on the current sound */
 static atomic_bool s_playing;             /* PCM has gone out and not run dry since */
+static atomic_uint s_decoded;             /* the last sound the decoder finished */
+static atomic_uint s_failed;              /* the last sound that failed */
+static atomic_uint s_played;              /* 16 kHz frames of the current sound that went out */
 static char s_state[12] = "idle";
 static char s_error[64];
 static char s_source[8];
@@ -146,6 +149,7 @@ static void decode_one(unsigned gen)
                 impo_wav_t wav;
                 if (!impo_wav_header(s_buf, have, &wav)) {
                     if (ended || have >= 256) {
+                        atomic_store(&s_failed, gen);
                         set_state("failed", "not 16-bit PCM WAV");
                         return;
                     }
@@ -225,6 +229,7 @@ static void decode_one(unsigned gen)
     }
     if (atomic_load(&s_gen) == gen) {
         if (!frames) {
+            atomic_store(&s_failed, gen);
             set_state("failed", format == F_MP3 ? "not an MP3 this gadget can decode" : "empty sound");
         } else {
             ESP_LOGI(TAG, "%s: decoded, %u bytes after the samples dropped", s_source, (unsigned)dropped);
@@ -240,6 +245,7 @@ static void decoder_task(void *arg)
         unsigned gen = atomic_load(&s_gen);
         atomic_store(&s_decoding, true);
         decode_one(gen);
+        atomic_store(&s_decoded, gen);
         atomic_store(&s_decoding, false);
     }
 }
@@ -262,12 +268,13 @@ esp_err_t impo_sound_init(void)
     return ESP_OK;
 }
 
-void impo_sound_begin(const char *source)
+unsigned impo_sound_begin(const char *source)
 {
     if (!s_decoder) {
-        return;
+        return 0;
     }
-    atomic_fetch_add(&s_gen, 1);
+    unsigned gen = atomic_fetch_add(&s_gen, 1) + 1;
+    atomic_store(&s_played, 0);
     atomic_store(&s_ended, false);
     atomic_store(&s_ok, false);
     atomic_store(&s_playing, false);
@@ -280,6 +287,7 @@ void impo_sound_begin(const char *source)
     xStreamBufferReset(s_out);
     set_state("fetching", NULL);
     xTaskNotifyGive(s_decoder);
+    return gen;
 }
 
 size_t impo_sound_room(void)
@@ -310,6 +318,7 @@ void impo_sound_end(bool ok)
     atomic_store(&s_ok, ok);
     atomic_store(&s_ended, true);
     if (!ok && !strcmp(s_state, "fetching")) {
+        atomic_store(&s_failed, atomic_load(&s_gen));
         set_state("failed", "the sound did not arrive whole");
     }
 }
@@ -331,6 +340,7 @@ size_t impo_sound_read(int16_t *pcm, size_t frames, int wait_ms)
         return 0;
     }
     size_t n = xStreamBufferReceive(s_out, pcm, frames * sizeof(int16_t), pdMS_TO_TICKS(wait_ms)) / sizeof(int16_t);
+    atomic_fetch_add(&s_played, n);
     if (n && strcmp(s_state, "playing")) {
         set_state("playing", NULL);
     }
@@ -359,7 +369,25 @@ const char *impo_sound_status(char *error, size_t cap)
 
 void impo_sound_fail(const char *why)
 {
+    atomic_store(&s_failed, atomic_load(&s_gen));
     set_state("failed", why);
     atomic_fetch_add(&s_gen, 1);
     atomic_store(&s_ended, true);
+}
+
+impo_sound_outcome_t impo_sound_outcome(unsigned n, uint32_t *played_ms)
+{
+    if (played_ms) {
+        *played_ms = atomic_load(&s_gen) == n ? atomic_load(&s_played) / (OUT_RATE / 1000) : 0;
+    }
+    if (atomic_load(&s_failed) == n) {
+        return IMPO_SOUND_FAILED;
+    }
+    if (atomic_load(&s_gen) != n) {
+        return IMPO_SOUND_STOPPED;
+    }
+    if (atomic_load(&s_decoded) == n && !atomic_load(&s_playing) && !xStreamBufferBytesAvailable(s_out)) {
+        return IMPO_SOUND_DONE;
+    }
+    return IMPO_SOUND_RUNNING;
 }

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /*
- * Sounds outside a voice turn (speaker.say, speaker.play_url), streamed: a
+ * Sounds outside a voice turn (speaker.play, speaker.play_url), streamed: a
  * producer writes the bytes of an MP3 or a WAV as they arrive, a decoder task
  * turns them into 16 kHz mono as they come, and the voice loop plays that
  * when it is free. Everything is sized once at start-up (IMPO_SOUND_IN_BYTES
@@ -41,8 +41,9 @@ extern "C" {
 /* Once, from impo_app_run; needs PSRAM. */
 esp_err_t impo_sound_init(void);
 
-/* A new sound from `source` ("say", "url"), ending whatever was playing. */
-void impo_sound_begin(const char *source);
+/* A new sound from `source` ("cloud", "url"), ending whatever was playing.
+ * Returns the sound's number, for impo_sound_outcome. */
+unsigned impo_sound_begin(const char *source);
 /* Room for more bytes right now; a producer on a task it must not block
  * (the Link session's) holds off reading its socket when this is low. */
 size_t impo_sound_room(void);
@@ -63,6 +64,17 @@ bool impo_sound_active(void);
 const char *impo_sound_status(char *error, size_t cap);
 /* The producer's own failure, shown by impo_sound_status (e.g. "the URL could not be reached"). */
 void impo_sound_fail(const char *why);
+
+typedef enum {
+    IMPO_SOUND_RUNNING,   /* still arriving, decoding or playing */
+    IMPO_SOUND_DONE,      /* played to its end */
+    IMPO_SOUND_STOPPED,   /* stopped, or another sound began */
+    IMPO_SOUND_FAILED,    /* impo_sound_status says why */
+} impo_sound_outcome_t;
+
+/* How sound `n` (from impo_sound_begin) went; `played_ms` gets how much of
+ * it has come out of the speaker. */
+impo_sound_outcome_t impo_sound_outcome(unsigned n, uint32_t *played_ms);
 
 #ifdef __cplusplus
 }

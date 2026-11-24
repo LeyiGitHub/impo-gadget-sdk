@@ -5,7 +5,7 @@
 Impo's text to speech (Gemini) answers with a WAV whose data chunk is followed
 by a C2PA manifest of about 7 KB. Played as PCM, those bytes are a loud buzz
 right after the speech. These tests run the production header parser
-(impo_wav.c), speaker.say's decoder (impo_sound.c decode_one) and a reply's
+(impo_wav.c), speaker.play's decoder (impo_sound.c decode_one) and a reply's
 WAV path (impo_chat_session.cpp decode/play_wav) on such a WAV, and on one
 from a streaming writer that leaves the size unknown.
 """

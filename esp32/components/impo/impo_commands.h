@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "cJSON.h"
 
 #ifdef __cplusplus
@@ -32,11 +34,37 @@ extern "C" {
  * A board adds its own with impo_board_t.commands. `run` checks its own
  * parameters and returns a result object it owns no longer: {"ok":true,...} or
  * impo_command_error(). It runs on the Link session task, so it must not block.
+ *
+ * A result says what happened, never what is about to: a command whose work
+ * takes time (a sound playing, a head moving) is an impo_later_command_t. It
+ * checks its parameters, starts the work and returns impo_command_later(); when
+ * the work has finished or failed it calls impo_command_reply() once with the
+ * outcome. `timeout_ms` is registered when the work can take over 30 s. A
+ * board adds its own with impo_board_t.later_commands.
  */
+typedef struct impo_reply impo_reply_t;
+struct impo_reply {
+    /* Sends `result` (taken) as the command's answer and frees the reply. */
+    void (*send)(impo_reply_t *reply, cJSON *result);
+};
+
 typedef struct {
     const char *name;
     cJSON *(*run)(const cJSON *params);
 } impo_command_t;
+
+typedef struct {
+    const char *name;
+    cJSON *(*run_later)(const cJSON *params, impo_reply_t *reply);
+    int timeout_ms;
+} impo_later_command_t;
+
+/* What run_later returns once it has taken the reply. */
+cJSON *impo_command_later(void);
+/* True for impo_command_later()'s result: the answer comes through the reply. */
+bool impo_command_is_later(const cJSON *result);
+/* Answers a run_later command; `result` is taken and wrapped like run's. */
+void impo_command_reply(impo_reply_t *reply, cJSON *result);
 
 /* Names every command of this gadget in the link.register "commands_v2" object. */
 void impo_commands_describe(cJSON *commands);
@@ -45,8 +73,11 @@ void impo_commands_describe(cJSON *commands);
  * CAPABILITIES.md defines it, from the board and the build). */
 void impo_commands_capabilities(cJSON *params);
 
-/* Runs `name` if it is one of these commands; NULL means it is not. */
-cJSON *impo_commands_run(const char *name, const cJSON *params);
+/* Runs `name` if it is one of these commands; NULL means it is not. A
+ * run_later command takes `reply` and returns impo_command_later(); otherwise
+ * the caller still owns `reply`. Without a reply, a run_later command is
+ * refused. */
+cJSON *impo_commands_run(const char *name, const cJSON *params, impo_reply_t *reply);
 
 cJSON *impo_command_ok(void);
 cJSON *impo_command_error(const char *code, const char *message);

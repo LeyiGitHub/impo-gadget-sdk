@@ -16,19 +16,25 @@
 
 #include "impo_commands.h"
 
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "impo_audio.h"
 #include "impo_board.h"
 #include "impo_camera.h"
-#include "impo_chat.h"
+#include "impo_link.h"
 #include "impo_settings.h"
 #include "impo_sound.h"
 #include "impo_state.h"
@@ -37,7 +43,6 @@ static const char *TAG = "impo_commands";
 
 #define TEXT_MAX 200
 #define SOUND_TIMEOUT_MS 15000
-#define SAY_MAX_CHARS 1000
 
 cJSON *impo_command_ok(void)
 {
@@ -95,139 +100,274 @@ static cJSON *set_volume(const cJSON *params)
     return result;
 }
 
-static cJSON *beep(const cJSON *params)
+/*
+ * speaker.play and speaker.play_url: the bytes of a sound the cloud prepared,
+ * played as they arrive. speaker.play takes them from the gateway over Link's
+ * own session (GET /audio/<id>, a piece at a time while the player has room);
+ * speaker.play_url downloads a public URL. Either answers once the sound has
+ * played to its end, been stopped, or failed, saying which.
+ *
+ * One sound at a time: a new one stops the one playing, which answers
+ * "stopped". The memory is impo_sound's fixed buffers whatever the length.
+ */
+#define SOUND_MAX_MS 110000          /* the answer must come within the command's 120 s */
+#define SOUND_WRITE_WAIT_MS 20000    /* for room: the decoder frees it as it plays */
+#define PIECE_BYTES (32 * 1024)      /* asked of the gateway at a time */
+#define PIECE_WAIT_MS 15000
+
+typedef struct {
+    impo_reply_t *reply;
+    char *url;                       /* speaker.play_url */
+    char path[96];                   /* speaker.play: /audio/<id>?offset= */
+} play_job_t;
+
+static SemaphoreHandle_t s_play_lock;    /* held by the job that owns the player */
+static char s_last_url[128];             /* what speaker.play_url last tried, for speaker.status */
+
+/* One piece from the gateway; the callback runs on the Link session task. */
+static SemaphoreHandle_t s_piece_done;
+static atomic_uint s_piece;              /* the piece being fetched; callbacks of others are ignored */
+static int s_piece_status;
+static size_t s_piece_bytes;
+
+static void on_piece(void *ctx, int status, const uint8_t *data, size_t len, bool end)
 {
-    (void)params;
-    if (!impo_settings_speaker_on()) {
-        return impo_command_error("speaker_off", "the speaker is turned off in the gadget's settings");
+    if ((unsigned)(uintptr_t)ctx != atomic_load(&s_piece)) {
+        return;
     }
-    impo_audio_chirp(1);   /* 90 ms */
-    return impo_command_ok();
+    if (status < 0) {
+        s_piece_status = -1;
+        xSemaphoreGive(s_piece_done);
+        return;
+    }
+    if (status > 0) {
+        s_piece_status = status;
+    }
+    if (len && s_piece_status == 200) {
+        /* Room was there before the piece was asked for. */
+        if (impo_sound_write(data, len, 50)) {
+            s_piece_bytes += len;
+        } else {
+            s_piece_status = -2;
+        }
+    }
+    if (end) {
+        xSemaphoreGive(s_piece_done);
+    }
 }
 
-/*
- * speaker.play_url: a task of its own streams the file into impo_sound as it
- * downloads, so the memory is the module's fixed buffers whatever the
- * file's length; the decoder plays it as it comes. The command returns at
- * once and speaker.status says how it goes.
- */
-#define SOUND_MAX_BYTES (1536 * 1024)   /* an MP3 of a minute at 192 kbps */
-#define SOUND_WRITE_WAIT_MS 20000       /* for room: the decoder frees it as it plays */
-
-static volatile bool s_fetching;
-static char s_last_url[128];   /* what speaker.play_url last tried, for speaker.status */
-
-static void sound_task(void *arg)
+static cJSON *failed(const char *code, const char *message)
 {
-    char *url = arg;
-    const char *error = NULL;
-    size_t total = 0;
+    return impo_command_error(code, message);
+}
+
+/* The gateway's bytes, a piece at a time. NULL when all of them arrived. */
+static cJSON *fetch_cloud(play_job_t *job, unsigned n, size_t *total)
+{
+    for (;;) {
+        while (impo_sound_room() < PIECE_BYTES) {
+            if (impo_sound_outcome(n, NULL) != IMPO_SOUND_RUNNING) {
+                return NULL;   /* stopped or failed: the outcome says which */
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        char path[128];
+        snprintf(path, sizeof(path), "%s?offset=%u&length=%u", job->path, (unsigned)*total, (unsigned)PIECE_BYTES);
+        unsigned piece = atomic_fetch_add(&s_piece, 1) + 1;
+        s_piece_status = 0;
+        s_piece_bytes = 0;
+        xSemaphoreTake(s_piece_done, 0);
+        int64_t id = impo_link_req_open("GET", path, NULL, true, on_piece, (void *)(uintptr_t)piece);
+        if (!id) {
+            return failed("download_failed", "the gadget is not connected to Impo");
+        }
+        if (xSemaphoreTake(s_piece_done, pdMS_TO_TICKS(PIECE_WAIT_MS)) != pdTRUE) {
+            atomic_fetch_add(&s_piece, 1);
+            impo_link_req_cancel(id);
+            return failed("download_failed", "the sound stopped arriving");
+        }
+        if (s_piece_status == 404) {
+            return failed("not_found", "no such sound; it lasts five minutes after it is prepared");
+        }
+        if (s_piece_status == -2) {
+            return NULL;   /* the player gave up on it */
+        }
+        if (s_piece_status != 200) {
+            return failed("download_failed", "the sound broke off");
+        }
+        *total += s_piece_bytes;
+        if (s_piece_bytes < PIECE_BYTES) {
+            return NULL;
+        }
+    }
+}
+
+/* A public URL's bytes as they download. NULL when all of them arrived. */
+#define REDIRECTS_MAX 5
+
+static cJSON *fetch_url(play_job_t *job, unsigned n, size_t *total)
+{
+    cJSON *error = NULL;
     uint8_t *chunk = heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     const esp_http_client_config_t cfg = {
-        .url = url,
+        .url = job->url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = SOUND_TIMEOUT_MS,
         .buffer_size = 2048,
         .buffer_size_tx = 512,
     };
     esp_http_client_handle_t http = chunk ? esp_http_client_init(&cfg) : NULL;
-    esp_err_t err = http ? esp_http_client_open(http, 0) : ESP_ERR_NO_MEM;
     if (!http) {
-        error = "out of memory";
-    } else if (err != ESP_OK) {
-        error = "the URL could not be reached";
-    } else {
+        error = failed("out_of_memory", "no memory for the download");
+    }
+    /* Follows up to REDIRECTS_MAX redirects (a 301 to the file's real place is common). */
+    for (int redirects = 0; !error; redirects++) {
+        if (esp_http_client_open(http, 0) != ESP_OK) {
+            error = failed("download_failed", "the URL could not be reached");
+            break;
+        }
         esp_http_client_fetch_headers(http);
         int status = esp_http_client_get_status_code(http);
-        int64_t announced = esp_http_client_get_content_length(http);
-        if (status != 200) {
-            error = "the URL did not answer with the sound";
-        } else if (announced > SOUND_MAX_BYTES) {
-            error = "the sound is too large";
-        }
-    }
-    impo_sound_begin("url");
-    while (!error) {
-        int n = esp_http_client_read(http, (char *)chunk, 4096);
-        if (n < 0) {
-            error = "the download broke off";
-        } else if (n == 0) {
+        if (status == 200) {
             break;
-        } else if ((total += n) > SOUND_MAX_BYTES) {
-            error = "the sound is too large";
-        } else if (!impo_sound_write(chunk, n, SOUND_WRITE_WAIT_MS)) {
-            char why[64];
-            error = strcmp(impo_sound_status(why, sizeof(why)), "failed") ? "stopped" : "the sound could not be decoded";
         }
+        bool redirect = status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+        if (redirect && redirects < REDIRECTS_MAX && esp_http_client_set_redirection(http) == ESP_OK) {
+            esp_http_client_close(http);
+            continue;
+        }
+        char why[64];
+        snprintf(why, sizeof why, redirect ? "the URL redirected more than %d times" : "the URL answered HTTP %d",
+                 redirect ? REDIRECTS_MAX : status);
+        error = failed("download_failed", why);
+    }
+    while (!error) {
+        int got = esp_http_client_read(http, (char *)chunk, 4096);
+        if (got < 0) {
+            error = failed("download_failed", "the download broke off");
+        } else if (got == 0) {
+            break;
+        } else if (!impo_sound_write(chunk, got, SOUND_WRITE_WAIT_MS)) {
+            break;   /* the player gave up on it: the outcome says why */
+        } else {
+            *total += got;
+        }
+        (void)n;
     }
     if (http) {
         esp_http_client_close(http);
         esp_http_client_cleanup(http);
     }
     free(chunk);
-    if (!error && !total) {
-        error = "the sound is empty";
+    return error;
+}
+
+static void play_task(void *arg)
+{
+    play_job_t *job = arg;
+    /* A sound playing now stops and answers "stopped"; then the player is this one's. */
+    impo_sound_stop();
+    cJSON *result = NULL;
+    if (xSemaphoreTake(s_play_lock, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        result = failed("busy", "the sound before this one did not stop");
+        goto out;
     }
-    if (error) {
-        ESP_LOGW(TAG, "%s: %s", error, url);
-        if (strcmp(error, "stopped")) {
-            impo_sound_fail(error);
-        }
+    unsigned n = impo_sound_begin(job->url ? "url" : "cloud");
+    size_t total = 0;
+    int64_t started = esp_timer_get_time();
+    result = job->url ? fetch_url(job, n, &total) : fetch_cloud(job, n, &total);
+    if (result) {
+        impo_sound_end(false);
     } else {
-        ESP_LOGI(TAG, "fetched %u bytes of sound", (unsigned)total);
         impo_sound_end(true);
+        uint32_t played = 0;
+        impo_sound_outcome_t how;
+        while ((how = impo_sound_outcome(n, &played)) == IMPO_SOUND_RUNNING) {
+            if (played > SOUND_MAX_MS || esp_timer_get_time() - started > (int64_t)SOUND_MAX_MS * 1000) {
+                impo_sound_stop();
+                result = failed("too_long", "stopped after 110 seconds; a command answers within 120");
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if (!result && how == IMPO_SOUND_DONE && !total) {
+            result = failed("invalid_audio", "the sound was empty");
+        } else if (!result && how == IMPO_SOUND_DONE) {
+            result = impo_command_ok();
+            cJSON_AddNumberToObject(result, "played_ms", played);
+            cJSON_AddNumberToObject(result, "bytes", (double)total);
+        } else if (!result && how == IMPO_SOUND_STOPPED) {
+            result = failed("stopped", "stopped before its end");
+            cJSON_AddNumberToObject(result, "played_ms", played);
+        } else if (!result) {
+            char why[64];
+            impo_sound_status(why, sizeof(why));
+            result = failed("invalid_audio", why[0] ? why : "the sound could not be played");
+        }
     }
-    free(url);
-    s_fetching = false;
+    ESP_LOGI(TAG, "%s: %s, %u bytes", job->url ? "play_url" : "play",
+             cJSON_IsTrue(cJSON_GetObjectItem(result, "ok")) ? "played" : "not played", (unsigned)total);
+    xSemaphoreGive(s_play_lock);
+out:
+    impo_command_reply(job->reply, result);
+    free(job->url);
+    free(job);
     vTaskDeleteWithCaps(NULL);
 }
 
-static cJSON *play_url(const cJSON *params)
+static cJSON *start_play(play_job_t *job, impo_reply_t *reply)
 {
-    const cJSON *url = cJSON_GetObjectItem(params, "url");
-    if (!cJSON_IsString(url) || strncmp(url->valuestring, "https://", 8) || strlen(url->valuestring) > 512) {
-        return impo_command_error("invalid_param", "url must be an https URL of up to 512 characters");
-    }
     if (!impo_settings_speaker_on()) {
-        return impo_command_error("speaker_off", "the speaker is turned off in the gadget's settings");
+        free(job->url);
+        free(job);
+        return failed("speaker_off", "the speaker is turned off in the gadget's settings");
     }
-    if (s_fetching) {
-        return impo_command_error("busy", "another sound is still being fetched");
+    if (!s_play_lock) {
+        s_play_lock = xSemaphoreCreateMutex();
+        s_piece_done = xSemaphoreCreateBinary();
     }
-    char *copy = strdup(url->valuestring);
-    if (!copy) {
-        return impo_command_error("out_of_memory", "no memory for the request");
+    job->reply = reply;
+    if (!s_play_lock || !s_piece_done
+        || xTaskCreateWithCaps(play_task, "sound", 6144, job, 4, NULL, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+        free(job->url);
+        free(job);
+        return failed("out_of_memory", "no memory to play the sound");
     }
-    s_fetching = true;
-    strlcpy(s_last_url, copy, sizeof(s_last_url));
-    if (xTaskCreateWithCaps(sound_task, "sound_url", 6144, copy, 4, NULL, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
-        s_fetching = false;
-        free(copy);
-        return impo_command_error("out_of_memory", "no memory for the request");
-    }
-    cJSON *result = impo_command_ok();
-    cJSON_AddStringToObject(result, "status", "fetching");
-    cJSON_AddStringToObject(result, "note", "the sound plays as it arrives; speaker.status reports progress");
-    return result;
+    wake();
+    return impo_command_later();
 }
 
-static cJSON *speaker_say(const cJSON *params)
+static cJSON *play(const cJSON *params, impo_reply_t *reply)
 {
-    const cJSON *text = cJSON_GetObjectItem(params, "text");
-    if (!cJSON_IsString(text) || !text->valuestring[0] || strlen(text->valuestring) > SAY_MAX_CHARS) {
-        return impo_command_error("invalid_param", "text must be 1 to 1000 characters");
+    const cJSON *id = cJSON_GetObjectItem(params, "id");
+    size_t len = cJSON_IsString(id) ? strlen(id->valuestring) : 0;
+    if (!len || len > 64 || strspn(id->valuestring, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") != len) {
+        return failed("invalid_param", "id must be the gateway's id of a prepared sound");
     }
-    if (!impo_settings_speaker_on()) {
-        return impo_command_error("speaker_off", "the speaker is turned off in the gadget's settings");
+    play_job_t *job = calloc(1, sizeof(*job));
+    if (!job) {
+        return failed("out_of_memory", "no memory to play the sound");
     }
-    if (!impo_hatch_say(text->valuestring)) {
-        return impo_command_error("unavailable", "the gadget is not connected to Impo's voice");
+    snprintf(job->path, sizeof(job->path), "/audio/%s", id->valuestring);
+    return start_play(job, reply);
+}
+
+static cJSON *play_url(const cJSON *params, impo_reply_t *reply)
+{
+    const cJSON *url = cJSON_GetObjectItem(params, "url");
+    if (!cJSON_IsString(url) || (strncmp(url->valuestring, "https://", 8) && strncmp(url->valuestring, "http://", 7))
+        || strlen(url->valuestring) > 512) {
+        return failed("invalid_param", "url must be an http or https URL of up to 512 characters");
     }
-    impo_state_poke();
-    cJSON *result = impo_command_ok();
-    cJSON_AddStringToObject(result, "status", "fetching");
-    cJSON_AddStringToObject(result, "note", "the speech plays once Impo has made it, a few seconds from now");
-    return result;
+    play_job_t *job = calloc(1, sizeof(*job));
+    char *copy = job ? strdup(url->valuestring) : NULL;
+    if (!copy) {
+        free(job);
+        return failed("out_of_memory", "no memory to play the sound");
+    }
+    job->url = copy;
+    strlcpy(s_last_url, copy, sizeof(s_last_url));
+    return start_play(job, reply);
 }
 
 static cJSON *speaker_stop(const cJSON *params)
@@ -259,16 +399,21 @@ static const impo_command_t COMMON[] = {
     { "display.show_text",  show_text },
     { "avatar.cheer",       avatar_cheer },
     { "speaker.set_volume", set_volume },
-    { "speaker.beep",       beep },
-    { "speaker.play_url",   play_url },
-    { "speaker.say",        speaker_say },
     { "speaker.stop",       speaker_stop },
     { "speaker.status",     speaker_status },
 };
 
-static void describe(cJSON *commands, const impo_command_t *command)
+static const impo_later_command_t COMMON_LATER[] = {
+    { "speaker.play",     play,     120000 },
+    { "speaker.play_url", play_url, 120000 },
+};
+
+static void describe(cJSON *commands, const char *name, int timeout_ms)
 {
-    cJSON_AddItemToObject(commands, command->name, cJSON_CreateObject());
+    cJSON *entry = cJSON_AddObjectToObject(commands, name);
+    if (entry && timeout_ms > 30000) {
+        cJSON_AddNumberToObject(entry, "timeout_ms", timeout_ms);
+    }
 }
 
 void impo_commands_capabilities(cJSON *params)
@@ -307,10 +452,16 @@ void impo_commands_capabilities(cJSON *params)
 void impo_commands_describe(cJSON *commands)
 {
     for (size_t i = 0; i < sizeof(COMMON) / sizeof(COMMON[0]); i++) {
-        describe(commands, &COMMON[i]);
+        describe(commands, COMMON[i].name, 0);
+    }
+    for (size_t i = 0; i < sizeof(COMMON_LATER) / sizeof(COMMON_LATER[0]); i++) {
+        describe(commands, COMMON_LATER[i].name, COMMON_LATER[i].timeout_ms);
     }
     for (int i = 0; impo_board && i < impo_board->command_count; i++) {
-        describe(commands, &impo_board->commands[i]);
+        describe(commands, impo_board->commands[i].name, 0);
+    }
+    for (int i = 0; impo_board && i < impo_board->later_command_count; i++) {
+        describe(commands, impo_board->later_commands[i].name, impo_board->later_commands[i].timeout_ms);
     }
 }
 
@@ -318,7 +469,7 @@ void impo_commands_describe(cJSON *commands)
  * put in its result (a reading, a state) is gathered under "payload". */
 static cJSON *wrap(cJSON *result)
 {
-    if (!result || cJSON_GetObjectItem(result, "payload")) {
+    if (!result || cJSON_GetObjectItem(result, "payload") || cJSON_GetObjectItem(result, "_async")) {
         return result;
     }
     cJSON *payload = NULL;
@@ -339,16 +490,51 @@ static cJSON *wrap(cJSON *result)
     return result;
 }
 
-cJSON *impo_commands_run(const char *name, const cJSON *params)
+cJSON *impo_command_later(void)
+{
+    cJSON *later = cJSON_CreateObject();
+    cJSON_AddBoolToObject(later, "_async", true);
+    return later;
+}
+
+bool impo_command_is_later(const cJSON *result)
+{
+    return cJSON_IsTrue(cJSON_GetObjectItem(result, "_async"));
+}
+
+void impo_command_reply(impo_reply_t *reply, cJSON *result)
+{
+    reply->send(reply, wrap(result));
+}
+
+static cJSON *run_later(const impo_later_command_t *command, const cJSON *params, impo_reply_t *reply)
+{
+    if (!reply) {
+        return wrap(impo_command_error("unavailable", "this command answers later and can't be run from here"));
+    }
+    return wrap(command->run_later(params, reply));
+}
+
+cJSON *impo_commands_run(const char *name, const cJSON *params, impo_reply_t *reply)
 {
     for (size_t i = 0; i < sizeof(COMMON) / sizeof(COMMON[0]); i++) {
         if (!strcmp(name, COMMON[i].name)) {
             return wrap(COMMON[i].run(params));
         }
     }
+    for (size_t i = 0; i < sizeof(COMMON_LATER) / sizeof(COMMON_LATER[0]); i++) {
+        if (!strcmp(name, COMMON_LATER[i].name)) {
+            return run_later(&COMMON_LATER[i], params, reply);
+        }
+    }
     for (int i = 0; impo_board && i < impo_board->command_count; i++) {
         if (!strcmp(name, impo_board->commands[i].name)) {
             return wrap(impo_board->commands[i].run(params));
+        }
+    }
+    for (int i = 0; impo_board && i < impo_board->later_command_count; i++) {
+        if (!strcmp(name, impo_board->later_commands[i].name)) {
+            return run_later(&impo_board->later_commands[i], params, reply);
         }
     }
     return NULL;

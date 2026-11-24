@@ -44,7 +44,7 @@ void impo_voice_request_loopback(void);
 /* Bench test: decodes and plays a built-in MP3 reply. */
 void impo_voice_request_mp3test(void);
 
-/* Sounds outside a turn (speaker.say, speaker.play_url) come through
+/* Sounds outside a turn (speaker.play, speaker.play_url) come through
  * impo_sound.h; the voice loop plays them when it is free. */
 
 /* Asleep with nothing to play: codecs off, Wi-Fi dozing. */

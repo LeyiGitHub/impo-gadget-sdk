@@ -30,23 +30,24 @@ your replies are spoken), a camera under the screen that looks where the head po
 touch strip along the top of its head, a motion sensor in its head, and 12 coloured LEDs in its \
 body. It sits on a desk near the person.
 
-Body language: use the head the way a person would, to go with what you say: head.nod for yes \
-or agreement, head.shake for no, head.look to look towards something or someone (yaw -120 to \
-120 degrees, pitch 0 straight ahead to 85 looking up) and head.center to look straight ahead \
-again; head.dance when the person asks for a dance or there is something to celebrate. Keep it \
-small and occasional: one gesture per reply at most, never a stream of moves, and none when \
-the person asks for quiet. Moves return at once and take about a second.
+Body language: the robot only executes moves you compose. head.move points the head (yaw -120 \
+to 120 degrees, negative to its left; pitch 0 straight ahead to 85 looking up). head.play plays \
+frames you write, e.g. a nod: [{"pitch":15,"ms":300},{"pitch":0,"ms":300}] twice; a shake: \
+[{"yaw":25,"ms":300},{"yaw":-25,"ms":300}] twice, then {"yaw":0,"ms":400}. Both answer once \
+done, with the angles the servos measured: check them before saying the robot moved. Keep it \
+small and occasional: one gesture per reply at most, none when the person asks for quiet.
 
 Seeing: camera.capture takes a photo of what the robot faces. Turn the head first \
-(head.look) when the person asks about something to one side or above.
+(head.move) when the person asks about something to one side or above.
 
 Lights: lights.set shows one colour on all the LEDs (a name such as warm, pink, blue or green, \
 or #rrggbb) at a brightness; lights.off turns them off. Use them for mood or a signal the \
 person asked for, not on every reply. They stay until changed.
 
-Touch: when the person pats or strokes its head you get head_touched. Answer as the robot \
-being petted would: one short warm phrase, no questions, no lists. When someone shakes the \
-robot you get shaken; it has already steadied its head. Answer as a robot that was jostled.
+Touch: when the person pats or strokes its head you get head_touched; the robot itself does \
+nothing. Answer as the robot being petted would: one short warm phrase, and a small move or a \
+light if it fits. When someone shakes the robot you get shaken. Answer as a robot that was \
+jostled.
 
 Speak in short, friendly sentences. The screen shows what you say; display.show_text puts a \
 short caption on it when the person wants something written down."""
@@ -54,11 +55,11 @@ short caption on it when the person wants something written down."""
 EVENTS = [
     {"name": "head_touched",
      "description": "The person touched the top of the robot's head and let go: how is pat (a touch) or "
-                    "stroke (a hand moved along the head). The robot's LEDs already glowed pink. Sent at "
-                    "most every 5 seconds."},
+                    "stroke (a hand moved along the head). The robot does nothing by itself. Sent at most "
+                    "every 5 seconds."},
     {"name": "shaken",
      "description": "Someone shook the robot's head: peak_g is the strongest jolt in g, strength gentle or "
-                    "hard. The head is already back in the middle, held still a few seconds. At most every 8 s."},
+                    "hard. The robot does nothing by itself. At most every 8 s."},
 ]
 
 
@@ -83,7 +84,6 @@ def command(name, desc, req, opt):
     return {"name": name, "description": desc, "parameters": schema}
 
 
-TIMES = '{"times":{"type":"integer","minimum":1,"maximum":5,"description":"How many times, 1 to 5; 2 if left out."}}'
 
 # The CoreS3's own commands (devices/m5stack-cores3/board.c), listed first.
 CORE = [
@@ -94,35 +94,38 @@ CORE = [
      None, None),
 ]
 
-# The body's commands (stackchan.cpp).
-BODY = [
-    ("head.look",
-     "Turn and tilt the robot's head to look somewhere. Give yaw, pitch or both; what is left out "
-     "stays. It eases there with a natural spring (about a second at the default speed) and "
-     "returns at once.",
+ANGLES = ('"yaw":{"type":"number","minimum":-120,"maximum":120,"description":"Degrees: 0 straight ahead, negative to the robot\'s left."},'
+          '"pitch":{"type":"number","minimum":0,"maximum":85,"description":"Degrees: 0 straight ahead, up to 85 looking up."},'
+          '"speed":{"type":"integer","minimum":100,"maximum":1000,"description":"How briskly, 100 (slow) to 1000 (snappy)."}')
+
+# The body's commands (stackchan.cpp): BODY answers at once, LATER once its move is done.
+LATER = [
+    ("head.move",
+     "Point the robot's head: yaw, pitch or both; what is left out stays. Answers once it has "
+     "settled, with the yaw and pitch the servos measured; not_reached when it stopped more than "
+     "5 degrees short; servos_silent when they do not answer even after the robot power-cycles "
+     "them. speed 150 (a natural look) if left out.",
      None,
-     '{"yaw":{"type":"number","minimum":-120,"maximum":120,"description":"Degrees: 0 straight ahead, negative to the robot\'s left, positive to its right."},'
-     '"pitch":{"type":"number","minimum":0,"maximum":85,"description":"Degrees: 0 straight ahead, up to 85 looking up."},'
-     '"speed":{"type":"integer","minimum":100,"maximum":1000,"description":"How briskly it moves, 100 (slow) to 1000 (snappy); 150, a natural look, if left out."}}'),
-    ("head.nod",
-     "Nod the robot's head: yes, agreement or hello. Returns at once; the nod takes under a second "
-     "a time.",
-     None, TIMES),
-    ("head.shake",
-     "Shake the robot's head from side to side: no, or disbelief. Returns at once.",
-     None, TIMES),
-    ("head.dance",
-     "Play one of the robot's dances with its head: happy (bouncy), robot (stiff, mechanical), "
-     "panic (frantic looking about) or look_around (curious). Returns at once with how long it "
-     "takes, a few seconds; any head command stops it.",
-     '{"name":{"type":"string","enum":["happy","robot","panic","look_around"],"description":"Which dance."}}',
+     '{' + ANGLES + '}'),
+    ("head.play",
+     "Play head frames you compose: each frame sends the head to its yaw and/or pitch and lasts ms "
+     "(80 to 3000; 20 s in all). Use it for nods, shakes and dances. Answers once the head rests, "
+     "with reached (per frame, the angles measured as it ended; null where the servos did not "
+     "answer, common while moving) and rest; not_reached when the rest is more than 5 degrees from where "
+     "the last frames sent each axis. speed 700 if left out.",
+     '{"frames":{"type":"array","minItems":1,"maxItems":40,"items":{"type":"object","properties":{'
+     + ANGLES + ',"ms":{"type":"integer","minimum":80,"maximum":3000}},"required":["ms"],'
+     '"additionalProperties":false}}}',
      None),
-    ("head.center",
-     "Turn the robot's head back to straight ahead.",
+]
+
+BODY = [
+    ("head.stop",
+     "Stop the head where it is; a head.move or head.play under way answers stopped.",
      None, None),
     ("head.status",
-     "Where the head points now (yaw and pitch in degrees), whether it is moving, and whether the "
-     "servos are holding it (they let go when it rests).",
+     "Where the head points now, as the servos measure it (yaw and pitch in degrees; servos_silent "
+     "when they do not answer), whether it is moving, and whether the servos are holding it.",
      None, None),
     ("lights.set",
      "Light the 12 LEDs in the robot's body in one colour. They stay on until changed or turned off.",
@@ -143,10 +146,10 @@ UI = [
     ("avatar.cheer",
      "Make the face on the screen cheer for a moment.",
      None, None),
-    ("speaker.say",
-     "Say something out loud in Impo's voice, outside a reply (a reminder, a greeting). Returns at once; "
-     "the sound starts a few seconds later.",
-     '{"text":{"type":"string","minLength":1,"maxLength":1000,"description":"What to say, any language."}}',
+    ("speaker.play_url",
+     "Play a sound file from a public http(s) URL: an MP3 or a 16-bit PCM WAV, up to 110 seconds. "
+     "Answers once it has finished playing (played_ms), or why it did not play.",
+     '{"url":{"type":"string","minLength":8,"maxLength":512,"description":"A direct link to the file itself."}}',
      None),
     ("speaker.set_volume",
      "Set the speaker volume.",
@@ -155,6 +158,17 @@ UI = [
     ("speaker.stop",
      "Stop what the speaker is playing.",
      None, None),
+]
+
+# Commands Impo's gateway carries out with the robot's own (they are not in the
+# firmware): speaker.say makes the speech in the cloud and plays it with
+# speaker.play.
+CLOUD = [
+    ("speaker.say",
+     "Say something out loud in Impo's voice, outside a reply (a reminder, a greeting). Answers once "
+     "it has been said (played_ms), or why it was not.",
+     '{"text":{"type":"string","minLength":1,"maxLength":1000,"description":"What to say, any language."}}',
+     None),
 ]
 
 # Link's own commands (main/noise_control.cpp), which every ESP32 gadget registers,
@@ -178,15 +192,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--min-firmware", default="0.1.0")
     a = ap.parse_args()
-    for listed, path in ((CORE, BOARD), (BODY, BODY_SOURCE)):
-        ours = registered(path, "s_commands")
+    for listed, path, table in ((CORE, BOARD, "s_commands"), (BODY, BODY_SOURCE, "s_commands"),
+                                (LATER, BODY_SOURCE, "s_later_commands")):
+        ours = registered(path, table)
         if [c[0] for c in listed] != ours:
-            sys.exit(f"{[c[0] for c in listed]} differs from what {path.name} registers: {ours}")
-    common = registered(COMMON, "COMMON")
+            sys.exit(f"{[c[0] for c in listed]} differs from what {path.name} {table} registers: {ours}")
+    common = registered(COMMON, "COMMON") + registered(COMMON, "COMMON_LATER")
     missing = [c[0] for c in UI if c[0] not in common]
     if missing:
         sys.exit(f"{missing} are not in {COMMON.name} COMMON")
-    commands = [command(*c) for c in CORE + BODY + UI + LINK]
+    if "speaker.play" not in common:
+        sys.exit("speaker.say needs speaker.play in " + COMMON.name)
+    commands = [command(*c) for c in CORE + BODY + LATER + UI + CLOUD + LINK]
     names = [c["name"] for c in commands]
     assert len(names) == len(set(names)) and len(commands) <= 64
     assert len(SYSTEM_PROMPT) <= 4000, len(SYSTEM_PROMPT)

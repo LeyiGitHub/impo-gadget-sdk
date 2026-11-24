@@ -54,6 +54,21 @@ void Hal::init()
     servo_init();
 }
 
+/* During pitch moves both servos sometimes stop answering at once, while the
+ * PY32 still answers and its latch still holds their power on (seen on a
+ * StackChan on USB power, 2026-11-24). Only a power cycle brings them back.
+ * If the PY32 itself forgot its setup (latch reading off), set it up first. */
+void Hal::reviveServos()
+{
+    if (!servoPowerLatched()) {
+        io_expander_init();
+    }
+    setServoPowerEnabled(false);
+    delay(500);
+    setServoPowerEnabled(true);
+    delay(600);     /* the servos answer about half a second after power-on */
+}
+
 void Hal::delay(std::uint32_t ms)
 {
     vTaskDelay(pdMS_TO_TICKS(ms));

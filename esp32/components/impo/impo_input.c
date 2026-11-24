@@ -651,10 +651,33 @@ static void console_snap(void)
 }
 #endif
 
+/* "run=" over USB: a command's answer, printed when it comes. */
+typedef struct {
+    impo_reply_t reply;
+    char name[48];
+} console_reply_t;
+
+static void print_run(const char *name, cJSON *result)
+{
+    char *text = result ? cJSON_PrintUnformatted(result) : NULL;
+    printf("@run {\"command\":\"%s\",\"result\":%s}\n", name, text ? text : "null");
+    fflush(stdout);
+    cJSON_free(text);
+    cJSON_Delete(result);
+}
+
+static void console_reply_send(impo_reply_t *reply, cJSON *result)
+{
+    console_reply_t *r = (console_reply_t *)reply;
+    print_run(r->name, result);
+    free(r);
+}
+
 /*
  * Console-only commands; false for setup commands. Their buffers are taken
  * per command: without PSRAM, static ones would hold internal RAM for good.
  */
+
 static bool console_command(char *line, bool whole)
 {
 #if CONFIG_IMPO_BOARD_ESPRESSIF_SPARKBOT
@@ -683,12 +706,19 @@ static bool console_command(char *line, bool whole)
             *json++ = '\0';
         }
         cJSON *params = json ? cJSON_Parse(json) : cJSON_CreateObject();
-        cJSON *result = params ? impo_commands_run(name, params) : impo_command_error("invalid_params", "not JSON");
-        char *text = result ? cJSON_PrintUnformatted(result) : NULL;
-        printf("@run {\"command\":\"%s\",\"result\":%s}\n", name, text ? text : "null");
-        fflush(stdout);
-        cJSON_free(text);
-        cJSON_Delete(result);
+        console_reply_t *reply = calloc(1, sizeof(*reply));
+        if (reply) {
+            reply->reply.send = console_reply_send;
+            strlcpy(reply->name, name, sizeof(reply->name));
+        }
+        cJSON *result = params ? impo_commands_run(name, params, reply ? &reply->reply : NULL)
+                               : impo_command_error("invalid_params", "not JSON");
+        if (result && impo_command_is_later(result)) {
+            cJSON_Delete(result);   /* the answer is printed when it comes */
+        } else {
+            free(reply);
+            print_run(name, result);
+        }
         cJSON_Delete(params);
         return true;
     }

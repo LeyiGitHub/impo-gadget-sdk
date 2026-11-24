@@ -106,6 +106,9 @@ typedef struct {
     /* Commands only this board has (impo_commands.h); may be left out. */
     const impo_command_t *commands;
     int command_count;
+    /* ... and those that answer once their work is done. */
+    const impo_later_command_t *later_commands;
+    int later_command_count;
     /* What else the board has, for the capabilities it registers (CAPABILITIES.md):
      * a comma-separated list such as "motion_sensor,locomotion,lights", or NULL. */
     const char *features;

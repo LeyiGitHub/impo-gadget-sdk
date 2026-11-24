@@ -1991,6 +1991,21 @@ void app_request_reconnect(void) {
     cJSON_Delete(result);
 }
 
+#if CONFIG_IMPO_ENABLED
+// A command that answers once its work is done (impo_command_t.run_later).
+typedef struct {
+    impo_reply_t reply;
+    noise_ctrl_session_generation_t session_generation;
+    char request_id[64];
+} link_reply_t;
+
+static void link_reply_send(impo_reply_t *reply, cJSON *result) {
+    link_reply_t *r = (link_reply_t *)reply;
+    noise_ctrl_send_command_result(r->session_generation, r->request_id, result);
+    free(r);
+}
+#endif
+
 static cJSON *on_ws_command(
     const char *command, cJSON *params, const char *request_id,
     noise_ctrl_session_generation_t session_generation) {
@@ -2003,7 +2018,14 @@ static cJSON *on_ws_command(
         return queue_ws_control(WS_CONTROL_SET_VM, url);
     }
 #if CONFIG_IMPO_ENABLED
-    cJSON *ui_result = impo_commands_run(command, params);
+    link_reply_t *reply = calloc(1, sizeof(*reply));
+    if (reply) {
+        reply->reply.send = link_reply_send;
+        reply->session_generation = session_generation;
+        strlcpy(reply->request_id, request_id, sizeof(reply->request_id));
+    }
+    cJSON *ui_result = impo_commands_run(command, params, reply ? &reply->reply : NULL);
+    if (!ui_result || !impo_command_is_later(ui_result)) free(reply);
     if (ui_result) return ui_result;
 #endif
 #if CONFIG_HOMEHUB_LED_BACKEND_XTEINK_X4

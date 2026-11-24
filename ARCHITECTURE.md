@@ -173,9 +173,10 @@ sequenceDiagram
     A->>W: may call imu.read or others first
     A-->>W: reply
     W-->>G: submission stream
-    G->>G: collects the reply text
-    G->>D: link.invoke speaker.say text
-    D->>G: POST /tts ... (as above)
+    G->>G: collects the reply text, makes the speech (Impo API text to speech)
+    G->>D: link.invoke speaker.play id
+    D->>G: GET /audio/id?offset&length, 32 KB at a time, on Link's own session
+    D-->>G: played_ms, once it has played
 ```
 
 Nothing from a gadget enters the person's conversation. Each gadget has
@@ -190,13 +191,15 @@ come is simply not spoken (Decisions, 1).
 
 ### A sound: "play this"
 
-`speaker.play_url` fetches the MP3 on the gadget over HTTPS (the certificate
-bundle is in the firmware), streaming each chunk into `impo_sound`, whose
-decoder task turns MP3 or WAV into 16 kHz mono as it arrives and whose
-buffers were allocated once at start-up. `speaker.say` streams the gateway's
-WAV into the same module. The voice loop plays whatever is there when it is
-free; a new sound replaces the old; `speaker.status` tells how the last one
-went and names the URL it tried.
+`speaker.play_url` fetches the MP3 or WAV on the gadget over HTTPS (the
+certificate bundle is in the firmware; up to 5 redirects), streaming each chunk
+into `impo_sound`, whose decoder task turns MP3 or WAV into 16 kHz mono as it
+arrives and whose buffers were allocated once at start-up. `speaker.play`
+fetches bytes the gateway staged (the gateway's `speaker.say` speech) into the
+same module, a piece at a time while it has room. Both answer once the sound
+has played, was stopped, or failed (CAPABILITIES.md, What a board does); a new
+sound stops the old one, which answers `stopped`; `speaker.status` tells what
+the speaker is doing and names the last URL.
 
 ## Decisions
 

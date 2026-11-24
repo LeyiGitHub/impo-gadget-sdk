@@ -114,6 +114,24 @@ system prompt should ask for what one lookup can answer ("the subjects of the
 two newest unread mails"), not for what takes a tour ("how many unread
 mails"): a long turn leaves the gadget mute until it ends.
 
+## What a board does
+
+A board does what only hardware can: play bytes, move a servo to an angle,
+light an LED, take a photo, read a sensor. Everything that needs understanding
+or composing is the cloud's: speech is made in the cloud and played with
+`speaker.play`, nods and dances are frames the agent writes for `head.play`,
+and a touch or a shake is only an event, with no reaction of the board's own.
+
+A command answers when its work is done, with what happened: a sound once it
+has played (or was stopped, or failed), a head once it has settled, with the
+angles its servos measured. "ok" never means "started". In firmware such a
+command is an `impo_later_command_t` (`impo_commands.h`), answered through
+`impo_command_reply()`; its `timeout_ms` covers the work.
+
+A product's manifest gives each command a `result` schema, what an ok answer
+holds, so the agent and the Impo app (which shows every command as a
+prototype, `name(params) → answer`) know it.
+
 ## The vocabulary
 
 Every command runs on the gadget and answers within its `timeout_ms` (30 s
@@ -196,18 +214,24 @@ gadget shows.
 
 | Command | Who has it | Parameters | Result payload |
 |---|---|---|---|
-| `speaker.set_volume` | any speaker | `percent` 0–100 | `{"percent"}` |
-| `speaker.beep` | any speaker | — | — |
-| `speaker.say` | any speaker with Hatch | `text` (1–1000 chars, any language) | `{"status": "fetching"}` |
-| `speaker.play_url` | any speaker with PSRAM | `url` (public https MP3, ≤ 1.5 MB, ~1 min) | `{"status": "fetching"}` |
+| `speaker.play` | any speaker with PSRAM | `id`: a sound the gateway staged | `{"played_ms", "bytes"}` |
+| `speaker.play_url` | any speaker with PSRAM | `url`: a public http(s) MP3 or 16-bit PCM WAV | `{"played_ms", "bytes"}` |
 | `speaker.stop` | any speaker | — | — |
-| `speaker.status` | any speaker | — | `{"status": idle/fetching/decoding/playing/failed, "error"?, "volume_percent", "speaker_on"}` |
+| `speaker.set_volume` | any speaker | `percent` 0–100 | `{"percent"}` |
+| `speaker.status` | any speaker | — | `{"status": idle/fetching/playing/failed, "error"?, "last_url"?, "volume_percent", "speaker_on"}` |
+| `speaker.say` | the gateway, for a board with `speaker.play` | `text` 1–300 chars, any language | `{"played_ms", "bytes"}` |
 
-`say` and `play_url` return at once and the sound starts a few seconds
-later; `status` tells how it went. `say` is spoken in Impo's voice: the gadget
-asks the gateway (`POST /tts`), which asks the Impo API's text to speech. No
-speech service key is ever on a gadget. Replies to push-to-talk are spoken the
-same way.
+The board plays bytes; it never makes them. `play` and `play_url` answer once
+the sound has played to its end; `stopped` (with `played_ms`) when
+`speaker.stop` or a new sound ended it; `invalid_audio`, `not_found`,
+`download_failed` (with the HTTP status), or `too_long` after 110 s. A new
+sound stops the one playing. `play` fetches the staged bytes over Link's own
+session, `GET /audio/<id>?offset&length`, 32 KB at a time while the player has
+room; `play_url` follows up to 5 redirects.
+
+`speaker.say` is not in the firmware: the gateway makes the speech (the Impo
+API's text to speech, in Impo's voice), stages it and sends `speaker.play`,
+and answers when that does. No speech service key is ever on a gadget.
 
 ### `camera.*` — pictures
 
@@ -256,20 +280,25 @@ wired so far, so it registers `chassis.drive`, `move`, `stop` and `status`.
 
 | Command | Who has it | Parameters | Result payload |
 |---|---|---|---|
-| `head.look` | `head` | `yaw` −120..120°, `pitch` 0..85°, `speed`? 100–1000 (150) | — |
-| `head.nod` | `head` | `times`? 1–5 (2) | `{"duration_ms"}` |
-| `head.shake` | `head` | `times`? 1–5 (2) | `{"duration_ms"}` |
-| `head.dance` | `head` | `name`: `happy`, `robot`, `panic` or `look_around` | `{"duration_ms"}` |
-| `head.center` | `head` | — | — |
-| `head.status` | `head` | — | `{"yaw", "pitch", "moving", "holding"}` |
+| `head.move` | `head` | `yaw`? −120..120°, `pitch`? 0..85°, `speed`? 100–1000 (150) | `{"yaw", "pitch", "servos_revived"?}` measured |
+| `head.play` | `head` | `frames`: 1–40 of `{yaw?, pitch?, ms 80–3000, speed? (700)}`, 20 s in all | `{"duration_ms", "reached": [{yaw, pitch} or null], "rest": {yaw, pitch}, "servos_revived"?}` |
+| `head.stop` | `head` | — | — |
+| `head.status` | `head` | — | `{"yaw", "pitch", "moving", "holding"}` measured |
 
-Moves return at once and spring the head there: `speed` is how briskly, and
-150 is a natural look. A new move replaces the one under way and stops a nod,
-shake or dance. The servos let go when the head rests (`holding` false), and a
-move that pushes against something is stopped. Errors: `invalid_params`, and
-`busy` while the head is in use or, after the gadget was shaken, held still
-for a few seconds. On the M5Stack StackChan yaw 0 and pitch 0 look straight
-ahead, and the dances are M5Stack's own.
+`head.move` answers once the head has settled, with the angles the servos
+measured: `not_reached` when it stopped more than 5° short. `head.play` sends
+the head to each frame in turn (nods, shakes and dances are frames the agent
+composes) and answers once it rests: `reached` is what each frame got to as it
+ended (null where the servos did not answer, common while moving), and
+`not_reached` when the rest is more than 5° off the last frames. A new move, or
+`head.stop`, ends the one under way, which answers `stopped`.
+
+On the M5Stack StackChan both servos sometimes stop answering at once during
+pitch moves, while the PY32 still holds their power on. A move then switches
+their power off and on (about 2 s), moves again once and says
+`servos_revived`; `servos_silent` when they stay silent. A reading counts only
+when no servo reply came back short meanwhile: the vendor code otherwise
+answers with its own animation's value. Yaw 0 and pitch 0 look straight ahead.
 
 ### `lights.*` — lights in one colour
 
@@ -318,10 +347,8 @@ gets a row here first. What it means on a device goes in the product's
 manifest.
 
 What happens next is the agent's call, guided by the manifest's system
-prompt. A reaction that needs no judgement (a sound, a fixed phrase,
-a light) belongs in the firmware itself: `speaker.say` through the platform's
-TTS, or a local file through `impo_sound`; it is instant and works without
-the agent. An event is for what needs the person's context.
+prompt. The board itself does nothing on an event: no sound, light or move of
+its own (What a board does, above).
 
 ## Memory
 
@@ -333,7 +360,7 @@ capability's memory is decided up front, not taken when used:
 | Capability | Memory | When |
 |---|---|---|
 | Replies spoken (`tts_data` → `decode`) | 512 KB PSRAM ring + decoder | at start-up, once |
-| `speaker.say`, `speaker.play_url` (`impo_sound`) | 160 KB in + 64 KB out, PSRAM; a 32 KB decoder task | at start-up, once |
+| `speaker.play`, `speaker.play_url` (`impo_sound`) | 160 KB in + 64 KB out, PSRAM; a 32 KB decoder task | at start-up, once |
 | `camera.capture` | 2 × 614 KB frames in PSRAM, 8 KB DMA pieces in internal RAM, a 614 KB copy and a 150 KB JPEG | for the second a photo takes, then given back |
 | `camera.capture` on the M5Stack CoreS3 | a 32 KB DVP DMA buffer in internal RAM and a 150 KB frame in PSRAM, both held while the camera streams from start-up; a 150 KB copy and the JPEG per photo | at start-up; the copy for the photo |
 | `imu.read`, the motion watcher | a 3 KB task (4 KB in PSRAM on the CoreS3) | at start-up |

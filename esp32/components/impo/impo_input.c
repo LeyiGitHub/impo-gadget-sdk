@@ -700,7 +700,7 @@ static bool console_command(char *line, bool whole)
     }
     if (!strncmp(line, "run=", 4) && whole) {
         /* Bench: one of this gadget's commands as link.invoke would run it,
-         * "run=head.look {\"yaw\":30}". Over USB only, never over BLE. */
+         * "run=head.move {\"yaw\":30}". Over USB only, never over BLE. */
         char *name = line + 4, *json = strchr(name, ' ');
         if (json) {
             *json++ = '\0';

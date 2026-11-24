@@ -47,7 +47,7 @@ limitations under the License.
 >   Impo gateway's TLS certificate needs.
 > - It adds a board: the Espressif ESP-SparkBot.
 > - Boards with the full UI declare extra commands (`display.show_text`,
->   `avatar.cheer`, `speaker.set_volume`, `speaker.beep`), and a board can add
+>   `avatar.cheer`, `speaker.set_volume`, `speaker.play_url`), and a board can add
 >   its own through `impo_board_t.commands`; see
 >   [`esp32/components/impo/impo_commands.h`](esp32/components/impo/impo_commands.h).
 >

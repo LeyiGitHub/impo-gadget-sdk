@@ -51,7 +51,7 @@ class LinkTransportContractTest(unittest.TestCase):
         self.assertIn("return false;", _function_body(connect, params))
         self.assertLess(connect.index(params), connect.index("noise_ctrl_connect("))
         self.assertIn(
-            "bool ctrl_started = noise_ctrl_connect(vm_id, auth_token, network_ssid);",
+            "bool ctrl_started = noise_ctrl_connect(vm_id, auth_token, target->auth_lifetime_s, network_ssid);",
             connect,
         )
         failure = _function_body(connect, "if (!ctrl_started)")
@@ -155,10 +155,18 @@ class LinkTransportContractTest(unittest.TestCase):
         refresh = _function_body(task, "if (update_reconnect_policy(")
         self.assertIn('notify_status("ws_refresh_needed")', refresh)
         # A credential the gateway no longer accepts is replaced before reconnecting.
-        outlived = _function_body(task, "} else if (vm_token_outlived(result, token_age_ms))")
+        outlived = _function_body(task, "} else if (vm_token_outlived(result, token_age_ms, s_auth_lifetime_s))")
         self.assertIn('notify_status("ws_refresh_needed")', outlived)
         self.assertIn("backoff = RECONNECT_VM_REFRESH_WAIT_MS", outlived)
-        self.assertIn("s_auth_token_us = esp_timer_get_time();", source)
+        # A new credential restarts the clock; the same one again (a plain
+        # reconnect) keeps its age and lifetime.
+        connect = _function_body(source, 'extern "C" bool noise_ctrl_connect(')
+        fresh = _function_body(connect, "if (!s_auth_token || strcmp(s_auth_token, auth_token) != 0)")
+        self.assertIn("s_auth_token_us = esp_timer_get_time();", fresh)
+        self.assertIn("s_auth_lifetime_s = auth_lifetime_s;", fresh)
+        self.assertEqual(source.count("s_auth_token_us = "), 1)
+        reconnect = _function_body(source, 'extern "C" bool noise_ctrl_reconnect(')
+        self.assertIn("noise_ctrl_connect(vm_id, token, lifetime_s, network_ssid)", reconnect)
         # link_noise_upgrade_harness.c runs noise_upgrade.h's request builder
         # and classifier: exact bearer header, no token in the request target,
         # CR/LF rejection, and 401/403 authentication failures. Check that the

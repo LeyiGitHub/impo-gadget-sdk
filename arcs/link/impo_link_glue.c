@@ -164,7 +164,7 @@ static bool connect_vm_target(const vm_info_t *target)
     char ssid[33];
     set_state(IMPO_LINK_CONNECTING);
     plat_watchdog_pause(g.wd_session, false);
-    if (!noise_ctrl_connect(vm_id, auth_token, wifi_ssid(ssid, sizeof(ssid)))) {
+    if (!noise_ctrl_connect(vm_id, auth_token, target->auth_lifetime_s, wifi_ssid(ssid, sizeof(ssid)))) {
         plat_watchdog_pause(g.wd_session, true);
         LISA_LOGE(TAG, "noise control start failed for %s", target->vm_url);
         return false;

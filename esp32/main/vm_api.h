@@ -29,6 +29,9 @@ typedef struct {
     char *vm_name;
     char *vm_id;
     bool  is_default;
+    // How long vm_auth_token lasts from fetch_vms (vm_auth_expires_in, in
+    // seconds); 0 when the gateway did not say.
+    int   auth_lifetime_s;
 } vm_info_t;
 
 typedef struct {

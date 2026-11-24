@@ -357,6 +357,10 @@ int vm_api_fetch_vms(const char *access_token, vm_info_t *out, int max) {
         out[count].vm_id = vm_id;
         cJSON *def = cJSON_GetObjectItem(entry, "default");
         out[count].is_default = cJSON_IsTrue(def);
+        cJSON *life = cJSON_GetObjectItem(entry, "vm_auth_expires_in");
+        out[count].auth_lifetime_s = cJSON_IsNumber(life) && life->valuedouble >= 1
+                                     && life->valuedouble <= 30 * 24 * 3600
+                                     ? (int)life->valuedouble : 0;
         count++;
     }
     cJSON_Delete(root);
@@ -509,6 +513,7 @@ void vm_list_free(vm_info_t *vms, int count) {
         free(vms[i].vm_id);
         vms[i].vm_url = vms[i].vm_auth_token = vms[i].vm_name = NULL;
         vms[i].vm_id = NULL;
+        vms[i].auth_lifetime_s = 0;
     }
 }
 

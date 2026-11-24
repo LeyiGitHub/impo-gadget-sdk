@@ -92,10 +92,13 @@ static int s_noise_port = 443;
 #define RECONNECT_MIN_MS          1000
 #define RECONNECT_MAX_MS          15000
 #define RECONNECT_AUTH_FAILED_MS  60000
-// Impo's gateway issues VM credentials for 5 minutes and checks them only when
-// a session opens. A credential older than this is not tried again after a
-// session ends; Link asks for a fresh one and waits this long for it first.
-#define RECONNECT_VM_TOKEN_REUSE_MS   270000
+// A VM credential is checked only when a session opens, and lasts as long as
+// fetch_vms said (vm_auth_expires_in; Impo's gateway: 4 hours). A gateway that
+// doesn't say issues them for 5 minutes. Reconnects reuse it until this margin
+// before it expires; after that Link asks for a fresh one and waits this long
+// for it first.
+#define RECONNECT_VM_TOKEN_DEFAULT_S  300
+#define RECONNECT_VM_TOKEN_MARGIN_MS  30000
 #define RECONNECT_VM_REFRESH_WAIT_MS  10000
 #define RECONNECT_DELAY_STEP_MS   250
 #define KEEPALIVE_INTERVAL_MS     60000
@@ -183,6 +186,7 @@ static noise_ctrl_agent_name_cb s_agent_name_cb = nullptr;
 static char s_vm_id[128];
 static char *s_auth_token = nullptr;
 static int64_t s_auth_token_us;   // when noise_ctrl_connect() was given s_auth_token
+static int s_auth_lifetime_s;     // how long s_auth_token lasts from then (0: not said)
 static volatile bool s_connected = false;
 static std::atomic<bool> s_running{false};
 static std::atomic<bool> s_power_save{false};
@@ -1767,16 +1771,23 @@ static bool update_reconnect_policy(session_result_t result,
     return false;
 }
 
+// How long after it was issued a VM credential is still worth reconnecting with.
+static int64_t vm_token_reuse_ms(int lifetime_s) {
+    int64_t ms = (int64_t)(lifetime_s > 0 ? lifetime_s : RECONNECT_VM_TOKEN_DEFAULT_S) * 1000
+                 - RECONNECT_VM_TOKEN_MARGIN_MS;
+    return ms > 0 ? ms : 0;
+}
+
 // After a session that ended on its own (Cloudflare restarts edge servers and
-// closes long-lived WebSockets every so often), a VM credential older than the
-// gateway's 5 minutes is refused with 401 and only then refreshed: one TLS
-// handshake, the refusal and a heartbeat tick for nothing, about 7 s offline.
-// Returns whether to ask for fresh credentials before reconnecting. Not after a
-// refusal (that path refreshes already) or a connect nobody answered (new
-// credentials can't fix the path).
-static bool vm_token_outlived(session_result_t result, int64_t token_age_ms) {
+// closes long-lived WebSockets every so often), an expired VM credential is
+// refused with 401 and only then refreshed: one TLS handshake, the refusal and
+// a heartbeat tick for nothing, about 5 s offline. Returns whether to ask for
+// fresh credentials before reconnecting. Not after a refusal (that path
+// refreshes already) or a connect nobody answered (new credentials can't fix
+// the path).
+static bool vm_token_outlived(session_result_t result, int64_t token_age_ms, int lifetime_s) {
     if (result == SESSION_AUTH_FAILED || result == SESSION_NETWORK_FAILED) return false;
-    return token_age_ms > RECONNECT_VM_TOKEN_REUSE_MS;
+    return token_age_ms > vm_token_reuse_ms(lifetime_s);
 }
 
 static void reconnect_delay(uint32_t delay_ms) {
@@ -2342,7 +2353,7 @@ static void noise_ctrl_task(void *arg) {
         int64_t token_age_ms = (esp_timer_get_time() - s_auth_token_us) / 1000;
         if (update_reconnect_policy(result, up_ms, &backoff, &short_failures)) {
             notify_status("ws_refresh_needed");
-        } else if (vm_token_outlived(result, token_age_ms)) {
+        } else if (vm_token_outlived(result, token_age_ms, s_auth_lifetime_s)) {
             // The app fetches fresh credentials and calls noise_ctrl_connect(),
             // which ends this wait. If it can't, the old one is tried anyway.
             ESP_LOGI(TAG, "VM credential is %llds old; asking for a fresh one first",
@@ -2398,7 +2409,7 @@ extern "C" void noise_ctrl_set_host(const char *host) {
 }
 
 extern "C" bool noise_ctrl_connect(const char *vm_id, const char *auth_token,
-                                   const char *network_ssid) {
+                                   int auth_lifetime_s, const char *network_ssid) {
     if (!vm_id || !*vm_id || !auth_token || !*auth_token || !s_connect_mutex) {
         return false;
     }
@@ -2416,9 +2427,15 @@ extern "C" bool noise_ctrl_connect(const char *vm_id, const char *auth_token,
     strncpy(s_vm_id, vm_id, sizeof(s_vm_id) - 1);
     s_vm_id[sizeof(s_vm_id) - 1] = '\0';
     store_wifi_ssid(network_ssid);
+    // The same credential again (noise_ctrl_reconnect) keeps its age.
+    if (!s_auth_token || strcmp(s_auth_token, auth_token) != 0) {
+        s_auth_token_us = esp_timer_get_time();
+        s_auth_lifetime_s = auth_lifetime_s;
+        ESP_LOGI(TAG, "VM credential lasts %d s", auth_lifetime_s > 0 ? auth_lifetime_s
+                                                                      : RECONNECT_VM_TOKEN_DEFAULT_S);
+    }
     free(s_auth_token);
     s_auth_token = strdup(auth_token);
-    s_auth_token_us = esp_timer_get_time();
 
     s_running = true;
     release_stack();
@@ -2441,8 +2458,9 @@ extern "C" bool noise_ctrl_reconnect(const char *network_ssid) {
     xSemaphoreTake(s_connect_mutex, portMAX_DELAY);
     strlcpy(vm_id, s_vm_id, sizeof(vm_id));
     char *token = s_auth_token ? strdup(s_auth_token) : nullptr;
+    int lifetime_s = s_auth_lifetime_s;
     xSemaphoreGive(s_connect_mutex);
-    bool ok = token && noise_ctrl_connect(vm_id, token, network_ssid);
+    bool ok = token && noise_ctrl_connect(vm_id, token, lifetime_s, network_ssid);
     free(token);
     return ok;
 }

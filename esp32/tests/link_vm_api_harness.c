@@ -524,8 +524,8 @@ static void test_refresh_without_access_uses_refresh_token_directly(void) {
 static void test_fetch_vms_success_filters_entries_and_uses_helpers(void) {
     const char *body =
         "{\"vm_list\":["
-        "{\"vm_ws_url\":\"wss://one\",\"vm_auth_token\":\"tok1\",\"vm_name\":\"one\",\"vm_id\":\"id-one\",\"default\":false},"
-        "{\"vm_url\":\"wss://two\",\"vm_auth_token\":\"tok2\",\"default\":true},"
+        "{\"vm_ws_url\":\"wss://one\",\"vm_auth_token\":\"tok1\",\"vm_name\":\"one\",\"vm_id\":\"id-one\",\"default\":false,\"vm_auth_expires_in\":14400},"
+        "{\"vm_url\":\"wss://two\",\"vm_auth_token\":\"tok2\",\"default\":true,\"vm_auth_expires_in\":\"14400\"},"
         "{\"vm_ws_url\":\"wss://missing-token\"},"
         "{\"vm_auth_token\":\"missing-url\"}"
         "]}";
@@ -546,18 +546,20 @@ static void test_fetch_vms_success_filters_entries_and_uses_helpers(void) {
     CHECK(vms[0].vm_id != NULL && strcmp(vms[0].vm_id, "id-one") == 0,
           "first VM id mismatch");
     CHECK(!vms[0].is_default, "first VM should not be default");
+    CHECK(vms[0].auth_lifetime_s == 14400, "first VM lifetime=%d", vms[0].auth_lifetime_s);
     CHECK(strcmp(vms[1].vm_url, "wss://two") == 0, "second VM url mismatch");
     CHECK(strcmp(vms[1].vm_auth_token, "tok2") == 0, "second VM token mismatch");
     CHECK(strcmp(vms[1].vm_name, "") == 0, "missing VM name should become empty");
     CHECK(vms[1].vm_id == NULL, "missing VM id should be NULL");
     CHECK(vms[1].is_default, "second VM should be default");
+    CHECK(vms[1].auth_lifetime_s == 0, "a lifetime that is not a number is not used");
     CHECK(vm_find_default(vms, count) == &vms[1], "default helper mismatch");
     CHECK(vm_find_by_url(vms, count, "wss://one") == &vms[0], "find by url mismatch");
     CHECK(vm_find_by_url(vms, count, "wss://missing") == NULL, "missing url found");
 
     vm_list_free(vms, count);
-    CHECK(vms[0].vm_url == NULL && vms[0].vm_auth_token == NULL && vms[0].vm_name == NULL,
-          "vm_list_free should clear first VM");
+    CHECK(vms[0].vm_url == NULL && vms[0].vm_auth_token == NULL && vms[0].vm_name == NULL
+          && vms[0].auth_lifetime_s == 0, "vm_list_free should clear first VM");
     CHECK(vms[0].vm_id == NULL, "vm_list_free should clear vm_id");
     vm_list_free(vms, count);
 }

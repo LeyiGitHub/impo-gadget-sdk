@@ -61,8 +61,11 @@ ever on a gadget.
   /device_token/refresh`). Deleting the pairing (app, or `DELETE
   /admin/vms/:vm/pairings/:id`) rejects its tokens; an online gadget is told
   (`link.unpaired`) and wipes itself.
-- **Session**: `GET /fetch_vms` with the device token returns a five-minute
-  bearer; `GET /v1/noise` upgrades to a WebSocket and runs a Noise XX
+- **Session**: `GET /fetch_vms` with the device token returns a bearer and
+  how long it lasts (`vm_auth_expires_in`, in seconds: four hours on Impo's
+  gateway, five minutes when absent). It is checked only at the upgrade, so
+  the gadget reuses it for every reconnect until shortly before it expires;
+  `GET /v1/noise` upgrades to a WebSocket and runs a Noise XX
   handshake (X25519, AES-GCM, SHA-256). Every frame after it is encrypted.
   Inside, HTTP-shaped streams are multiplexed; `POST /link-control` stays
   open for the control messages.

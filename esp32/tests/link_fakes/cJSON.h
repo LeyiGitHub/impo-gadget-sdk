@@ -62,4 +62,5 @@ int cJSON_IsNull(const cJSON *item);
 int cJSON_IsObject(const cJSON *item);
 int cJSON_IsString(const cJSON *item);
 int cJSON_IsTrue(const cJSON *item);
+int cJSON_IsNumber(const cJSON *item);
 cJSON *cJSON_GetObjectItem(const cJSON *object, const char *string);

@@ -153,15 +153,26 @@ static void test_reconnect_policy_network_failures_never_request_refresh(void) {
 }
 
 static void test_outlived_vm_token_is_refreshed_before_reconnecting(void) {
-    // A session Cloudflare closed after an hour: the 5-minute credential is stale.
-    CHECK(vm_token_outlived(SESSION_FAILED, 3600000), "stale credential after a dropped session");
-    CHECK(vm_token_outlived(SESSION_OK, RECONNECT_VM_TOKEN_REUSE_MS + 1), "stale after a clean end");
-    CHECK(!vm_token_outlived(SESSION_FAILED, 60000), "a minute-old credential is reused");
-    CHECK(!vm_token_outlived(SESSION_FAILED, RECONNECT_VM_TOKEN_REUSE_MS), "the limit itself is reused");
+    // A gateway that doesn't say how long the credential lasts issues it for 5
+    // minutes: after a session Cloudflare closed an hour in, it is stale.
+    const int64_t unsaid = RECONNECT_VM_TOKEN_DEFAULT_S * 1000LL - RECONNECT_VM_TOKEN_MARGIN_MS;
+    CHECK(unsaid > 0 && unsaid < 300000, "default reuse must end before 5 minutes, got %lld", (long long)unsaid);
+    CHECK(vm_token_reuse_ms(0) == unsaid, "0 means the gateway did not say");
+    CHECK(vm_token_outlived(SESSION_FAILED, 3600000, 0), "stale credential after a dropped session");
+    CHECK(vm_token_outlived(SESSION_OK, unsaid + 1, 0), "stale after a clean end");
+    CHECK(!vm_token_outlived(SESSION_FAILED, 60000, 0), "a minute-old credential is reused");
+    CHECK(!vm_token_outlived(SESSION_FAILED, unsaid, 0), "the limit itself is reused");
+    // Impo's gateway says 4 hours: an hour-old credential is reused, one about
+    // to expire is not.
+    CHECK(!vm_token_outlived(SESSION_FAILED, 3600000, 4 * 3600), "an hour into 4 hours is reused");
+    CHECK(!vm_token_outlived(SESSION_OK, 4 * 3600000LL - RECONNECT_VM_TOKEN_MARGIN_MS, 4 * 3600),
+          "reused up to the margin");
+    CHECK(vm_token_outlived(SESSION_OK, 4 * 3600000LL - RECONNECT_VM_TOKEN_MARGIN_MS + 1, 4 * 3600),
+          "refreshed inside the margin");
+    CHECK(vm_token_reuse_ms(10) == 0, "a credential shorter than the margin is never reused");
     // A refusal refreshes already; an unanswered connect can't be fixed by credentials.
-    CHECK(!vm_token_outlived(SESSION_AUTH_FAILED, 3600000), "auth failure has its own refresh");
-    CHECK(!vm_token_outlived(SESSION_NETWORK_FAILED, 3600000), "network failure keeps the credential");
-    CHECK(RECONNECT_VM_TOKEN_REUSE_MS < 300000, "reuse limit must be under the gateway's 5 minutes");
+    CHECK(!vm_token_outlived(SESSION_AUTH_FAILED, 3600000, 0), "auth failure has its own refresh");
+    CHECK(!vm_token_outlived(SESSION_NETWORK_FAILED, 3600000, 0), "network failure keeps the credential");
     CHECK(RECONNECT_VM_REFRESH_WAIT_MS < RECONNECT_AUTH_FAILED_MS, "the wait must be short of the auth backoff");
 }
 

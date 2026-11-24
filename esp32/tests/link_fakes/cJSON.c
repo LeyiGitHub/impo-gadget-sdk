@@ -273,6 +273,24 @@ static cJSON *parse_literal(parser_t *p, const char *literal, int type) {
     return new_item(type);
 }
 
+cJSON *cJSON_CreateNumber(double number);
+
+static cJSON *parse_number(parser_t *p) {
+    char buf[64];
+    size_t n = 0;
+    while (p->cur + n < p->end && n < sizeof(buf) - 1
+           && strchr("+-0123456789.eE", p->cur[n])) {
+        buf[n] = p->cur[n];
+        n++;
+    }
+    buf[n] = '\0';
+    char *stop = NULL;
+    double number = strtod(buf, &stop);
+    if (n == 0 || stop != buf + n) return NULL;
+    p->cur += n;
+    return cJSON_CreateNumber(number);
+}
+
 static cJSON *parse_value(parser_t *p) {
     skip_ws(p);
     if (p->cur >= p->end) return NULL;
@@ -292,6 +310,7 @@ static cJSON *parse_value(parser_t *p) {
     if (*p->cur == 't') return parse_literal(p, "true", cJSON_True);
     if (*p->cur == 'f') return parse_literal(p, "false", cJSON_False);
     if (*p->cur == 'n') return parse_literal(p, "null", cJSON_NULL);
+    if (*p->cur == '-' || (*p->cur >= '0' && *p->cur <= '9')) return parse_number(p);
     return NULL;
 }
 
@@ -448,6 +467,10 @@ int cJSON_IsString(const cJSON *item) {
 
 int cJSON_IsTrue(const cJSON *item) {
     return item && item->type == cJSON_True;
+}
+
+int cJSON_IsNumber(const cJSON *item) {
+    return item && item->type == cJSON_Number;
 }
 
 cJSON *cJSON_GetObjectItem(const cJSON *object, const char *string) {

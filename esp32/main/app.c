@@ -1102,7 +1102,7 @@ static bool connect_vm_target(const vm_info_t *target) {
 #endif
 
     const char *network_ssid = strcmp(s_ui_wifi, "down") == 0 ? NULL : s_ui_wifi;
-    bool ctrl_started = noise_ctrl_connect(vm_id, auth_token, network_ssid);
+    bool ctrl_started = noise_ctrl_connect(vm_id, auth_token, target->auth_lifetime_s, network_ssid);
     if (!ctrl_started) {
         ESP_LOGE(TAG, "noise control start failed for %s", target->vm_url);
         return false;

@@ -78,8 +78,11 @@ void noise_ctrl_set_display_name(const char *display_name);
 // tick at once.
 void noise_ctrl_set_power_save(bool on);
 
+// auth_token lasts auth_lifetime_s from now (fetch_vms' vm_auth_expires_in; 0
+// when the gateway did not say, taken as 5 minutes). Reconnects reuse it until
+// shortly before then, and fetch a new one after.
 bool noise_ctrl_connect(const char *vm_id, const char *auth_token,
-                        const char *network_ssid);
+                        int auth_lifetime_s, const char *network_ssid);
 
 void noise_ctrl_disconnect(void);
 

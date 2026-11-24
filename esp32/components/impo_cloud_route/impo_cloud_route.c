@@ -187,6 +187,11 @@ void impo_cloud_route_report(const char *host, bool ok)
     xSemaphoreGive(l);
 }
 
+const char *impo_cloud_route_tls_name(const char *url_or_host)
+{
+    return is_relay(url_or_host) ? IMPO_CLOUD_HOST : NULL;
+}
+
 void impo_cloud_route_reset(void)
 {
     atomic_fetch_add(&s_address, 1);
@@ -198,13 +203,14 @@ void impo_cloud_route_report(const char *host, bool ok)
     (void)ok;
 }
 
+const char *impo_cloud_route_tls_name(const char *url_or_host)
+{
+    (void)url_or_host;
+    return NULL;
+}
+
 void impo_cloud_route_reset(void) {}
 #endif
-
-bool impo_cloud_route_http_ok(int status)
-{
-    return status > 0 && status != 502 && status != 504;
-}
 
 static bool is_cloud(const char *host)
 {
@@ -238,13 +244,4 @@ void impo_cloud_route_url(const char *url, char *out, size_t cap)
     (void)cloud;
 #endif
     snprintf(out, cap, "%s", url ? url : "");
-}
-
-void impo_cloud_route_host_header(const char *host, int port, char *out, size_t cap)
-{
-    if (port == 443) {
-        snprintf(out, cap, "%s", host);
-    } else {
-        snprintf(out, cap, "%s:%d", host, port);
-    }
 }

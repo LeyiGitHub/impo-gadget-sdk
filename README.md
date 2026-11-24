@@ -25,7 +25,9 @@ limitations under the License.
 >   `api_url_v2` and `noise_host` when setup provides them.
 > - In mainland China, where connections to Cloudflare often fail, an ESP32
 >   gadget reaches `gadgets.impo.ai` through a relay in Shenzhen
->   (`gadget.itoy.cn:9443`). On each new Wi-Fi address it asks the relay's
+>   (`gadget.itoy.cn:9443`). The relay copies the TLS bytes to Cloudflare
+>   without decrypting them, so tokens and messages stay between the gadget
+>   and `gadgets.impo.ai`. On each new Wi-Fi address it asks the relay's
 >   `/where` whether its public address is in mainland China; it uses the
 >   relay only when the answer is yes, and goes direct when the relay does not
 >   answer or fails three connections in a row. A gateway host other than

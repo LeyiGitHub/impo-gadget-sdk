@@ -32,9 +32,6 @@ static bool s_running = true;
 static const char *s_auth_token = "synthetic";
 static const char *s_vm_id = "synthetic-vm";
 static const char *s_noise_host = "synthetic.example";
-// The Host header names the TLS peer, which is s_noise_host unless the
-// mainland China relay stands in for it (impo_cloud_route.h).
-static const char *s_noise_host_header = "synthetic.example";
 #define NOISE_PATH "/v1/noise"
 #define ESP_TLS_ERR_SSL_WANT_READ (-6900)
 #define ESP_TLS_ERR_SSL_WANT_WRITE (-6901)

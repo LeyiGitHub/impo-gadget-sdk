@@ -56,6 +56,8 @@ static int fetch(const char *auth, resp_t *r)
 {
     char url[96];
     impo_cloud_route_url(FETCH_URL, url, sizeof(url));
+    /* On the mainland China relay the TLS still ends at gadgets.impo.ai. */
+    const char *tls_name = impo_cloud_route_tls_name(url);
     esp_http_client_config_t cfg = {
         .url = url,
         .timeout_ms = 15000,
@@ -65,17 +67,21 @@ static int fetch(const char *auth, resp_t *r)
         .user_data = r,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .disable_auto_redirect = true,
+        .common_name = tls_name,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
         return 0;
+    }
+    if (tls_name) {
+        esp_http_client_set_header(c, "Host", tls_name);
     }
     esp_http_client_set_header(c, "Authorization", auth);
     esp_http_client_set_header(c, "X-API-Version", "1.0.0");
     esp_err_t err = esp_http_client_perform(c);
     int status = esp_http_client_get_status_code(c);
     esp_http_client_cleanup(c);
-    impo_cloud_route_report(url, impo_cloud_route_http_ok(status));
+    impo_cloud_route_report(url, status > 0);
     /* perform() reports 401 as an error; the status still tells us what happened. */
     if (status == 401 || status == 403) {
         return status;

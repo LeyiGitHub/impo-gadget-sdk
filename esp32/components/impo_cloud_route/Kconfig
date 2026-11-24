@@ -7,8 +7,9 @@ config IMPO_CHINA_RELAY
         From mainland China, connections to gadgets.impo.ai (Cloudflare) often
         fail or stall. With this on, the gadget asks the relay's /where once per
         Wi-Fi address; when the relay says the gadget's public address is in
-        mainland China, the gadget reaches Impo through the relay instead. The
-        relay forwards the same TLS requests and WebSockets to gadgets.impo.ai.
+        mainland China, the gadget dials the relay instead. The relay copies the
+        bytes of TLS connections named gadgets.impo.ai to gadgets.impo.ai:443
+        without decrypting them; the TLS session stays with Cloudflare.
         A gateway host other than gadgets.impo.ai is always used as given.
 
 config IMPO_CHINA_RELAY_HOST

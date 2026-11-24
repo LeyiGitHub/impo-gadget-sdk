@@ -46,17 +46,26 @@ class CloudRouteHarnessTest(unittest.TestCase):
         self.assertIn("impo_cloud_route_endpoint(s_noise_host, s_noise_peer,", noise)
         self.assertIn("esp_tls_conn_new_sync(s_noise_peer,", noise)
         self.assertIn("impo_cloud_route_report(s_noise_peer, r == 1);", noise)
-        self.assertIn("NOISE_PATH, s_vm_id, s_noise_host_header,", noise)
+        # The relay passes TLS through: the name and Host stay the gateway's.
+        self.assertIn("cfg.common_name = s_noise_host;", noise)
+        self.assertIn("NOISE_PATH, s_vm_id, s_noise_host,", noise)
         self.assertIn("impo_cloud_route_endpoint(s_host, s_peer,", chat)
         self.assertIn("esp_tls_conn_new_sync(s_peer,", chat)
-        self.assertIn("id, s_host_header, token);", chat)
+        self.assertIn("cfg.common_name = s_host;", chat)
+        self.assertIn("id, s_host, token);", chat)
         self.assertIn("impo_cloud_route_url(s_api_base, base, sizeof(base));", api)
         self.assertIn("impo_cloud_route_report(url,", api)
+        for source in (api, account):
+            self.assertIn("impo_cloud_route_tls_name(url);", source)
+            self.assertIn(".common_name = tls_name,", source)
+            self.assertIn('esp_http_client_set_header(', source)
+            self.assertIn('"Host", tls_name);', source)
         self.assertIn("impo_cloud_route_url(FETCH_URL, url, sizeof(url));", account)
         self.assertIn("impo_cloud_route_report(url,", account)
         self.assertIn("impo_cloud_route_reset();", wifi)
         for source in (noise, chat):
             self.assertNotIn("NOISE_PORT", source)
+            self.assertNotIn("host_header", source)
 
 
 if __name__ == "__main__":

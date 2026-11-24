@@ -73,15 +73,8 @@ static void url(const char *in, const char *want)
 
 int main(void)
 {
-    char header[64];
-    impo_cloud_route_host_header("gadgets.impo.ai", 443, header, sizeof(header));
-    assert(strcmp(header, "gadgets.impo.ai") == 0);
-    impo_cloud_route_host_header("gadget.itoy.cn", 9443, header, sizeof(header));
-    assert(strcmp(header, "gadget.itoy.cn:9443") == 0);
-    assert(!impo_cloud_route_http_ok(0) && !impo_cloud_route_http_ok(502) && !impo_cloud_route_http_ok(504));
-    assert(impo_cloud_route_http_ok(200) && impo_cloud_route_http_ok(401) && impo_cloud_route_http_ok(500));
-
 #ifdef ROUTE_RELAY_OFF
+    assert(impo_cloud_route_tls_name("https://gadget.itoy.cn:9443/fetch_vms") == NULL);
     where_body = CN;
     endpoint("gadgets.impo.ai", "gadgets.impo.ai", 443);
     endpoint("", "gadgets.impo.ai", 443);
@@ -109,6 +102,12 @@ int main(void)
     url("https://gadgets.impo.ai/fetch_vms", "https://gadget.itoy.cn:9443/fetch_vms");
     url("https://gadgets.impo.ai?x=1", "https://gadget.itoy.cn:9443?x=1");
     assert(where_calls == 1);
+    // The relay never decrypts: TLS name and Host header stay gadgets.impo.ai.
+    assert(strcmp(impo_cloud_route_tls_name("https://gadget.itoy.cn:9443/fetch_vms"), "gadgets.impo.ai") == 0);
+    assert(strcmp(impo_cloud_route_tls_name("gadget.itoy.cn"), "gadgets.impo.ai") == 0);
+    assert(impo_cloud_route_tls_name("https://gadgets.impo.ai/fetch_vms") == NULL);
+    assert(impo_cloud_route_tls_name("https://gadget.itoy.cn.example.com/x") == NULL);
+    assert(impo_cloud_route_tls_name("dev.example.com") == NULL);
 
     // A new Wi-Fi address: ask again. Outside mainland China: Cloudflare.
     impo_cloud_route_reset();

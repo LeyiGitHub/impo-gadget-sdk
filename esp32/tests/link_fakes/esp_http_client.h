@@ -67,6 +67,7 @@ typedef struct {
     void *user_data;
     void *crt_bundle_attach;
     bool disable_auto_redirect;
+    const char *common_name;
     bool keep_alive_enable;
     int max_redirection_count;
 } esp_http_client_config_t;

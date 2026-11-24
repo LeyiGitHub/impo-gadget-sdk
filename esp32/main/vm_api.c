@@ -131,6 +131,8 @@ static int http_json(const char *url, esp_http_client_method_t method,
     if (!url || !resp || !status_out) return VM_API_ERR_FAILED;
     *resp = (resp_buf_t){ .auth_header = auth_header };
     *status_out = 0;
+    // On the mainland China relay the TLS still ends at gadgets.impo.ai.
+    const char *tls_name = impo_cloud_route_tls_name(url);
 
     esp_http_client_config_t cfg = {
         .url = url,
@@ -142,9 +144,11 @@ static int http_json(const char *url, esp_http_client_method_t method,
         .user_data = resp,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .disable_auto_redirect = true,
+        .common_name = tls_name,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return VM_API_ERR_FAILED;
+    if (tls_name) esp_http_client_set_header(client, "Host", tls_name);
 
     if (auth_header && *auth_header) {
         esp_http_client_set_header(client, "Authorization", auth_header);
@@ -158,7 +162,7 @@ static int http_json(const char *url, esp_http_client_method_t method,
     esp_err_t err = esp_http_client_perform(client);
     *status_out = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
-    impo_cloud_route_report(url, impo_cloud_route_http_ok(*status_out));
+    impo_cloud_route_report(url, *status_out > 0);
 
     // Check HTTP status first — esp_http_client_perform returns
     // ESP_ERR_NOT_SUPPORTED on 401 responses (authentication challenge),

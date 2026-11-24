@@ -167,11 +167,10 @@ static bool s_connected;
 static impo_hatch_vm_t s_vm;       /* cached per-VM credentials */
 static bool s_vm_direct;           /* s_vm.vm_token is the device token itself */
 static char s_host[IMPO_HOST_MAX + 1];
-/* Where the TLS goes: s_host, or the mainland China relay in its place
- * (impo_cloud_route.h), and the Host header naming it. */
+/* The address to dial: s_host, or the mainland China relay in its place
+ * (impo_cloud_route.h). TLS name and Host header stay s_host. */
 static char s_peer[IMPO_HOST_MAX + 1];
 static int s_peer_port = 443;
-static char s_host_header[IMPO_HOST_MAX + 8];
 /* When to connect without a turn asking: once Wi-Fi is up, again with backoff
  * if that fails or the connection drops, not after an idle close. */
 static int64_t s_auto_next_us;
@@ -538,7 +537,7 @@ static int ws_upgrade(esp_tls_t *tls, const char *vm_id, const char *token)
 {
     char id[3 * 128 + 1];
     query_escape(vm_id, id, sizeof(id));
-    size_t cap = 512 + strlen(id) + strlen(token) + strlen(s_host_header);
+    size_t cap = 512 + strlen(id) + strlen(token) + strlen(s_host);
     char *req = static_cast<char *>(malloc(cap));
     if (!req) {
         return 0;
@@ -552,7 +551,7 @@ static int ws_upgrade(esp_tls_t *tls, const char *vm_id, const char *token)
                        "Sec-WebSocket-Version: 13\r\n"
                        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
                        "\r\n",
-                       id, s_host_header, token);
+                       id, s_host, token);
     bool sent = write_all(tls, req, len);
     free(req);
     if (!sent) {
@@ -846,9 +845,9 @@ static bool connect_once(char *err, size_t err_cap, int *http_status)
     esp_tls_cfg_t cfg = {};
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 15000;
+    cfg.common_name = s_host;  /* the relay passes TLS through to it */
     int64_t t0 = now_us();
     impo_cloud_route_endpoint(s_host, s_peer, sizeof(s_peer), &s_peer_port);
-    impo_cloud_route_host_header(s_peer, s_peer_port, s_host_header, sizeof(s_host_header));
     bool reached = esp_tls_conn_new_sync(s_peer, strlen(s_peer), s_peer_port, &cfg, c.tls) == 1;
     impo_cloud_route_report(s_peer, reached);
     if (!reached) {

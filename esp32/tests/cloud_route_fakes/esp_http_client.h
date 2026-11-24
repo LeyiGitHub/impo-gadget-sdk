@@ -18,6 +18,7 @@ typedef struct {
     void *user_data;
     int (*crt_bundle_attach)(void *conf);
     bool disable_auto_redirect;
+    const char *common_name;
 } esp_http_client_config_t;
 typedef struct fake_http *esp_http_client_handle_t;
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *config);

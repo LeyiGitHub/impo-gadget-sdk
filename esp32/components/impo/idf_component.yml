@@ -24,6 +24,10 @@ dependencies:
     public: true
     rules:
       - if: "$CONFIG{IMPO_BOARD_ID} != \"none\""
+  # AAC for voice notes (impo_note_aac.c). Espressif Modified MIT: for
+  # Espressif chips only, which is all this component runs on.
+  espressif/esp_audio_codec:
+    version: "2.6.2"
   espressif/esp_codec_dev:
     version: "~1.5"
     public: true

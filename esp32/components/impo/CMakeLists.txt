@@ -46,7 +46,7 @@ if(CONFIG_IMPO_ENABLED)
         "impo_sound.c"
         "impo_wav.c")
     if(CONFIG_IMPO_HATCH)
-        list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp")
+        list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp" "impo_note_aac.c")
         list(APPEND embed "test_reply.mp3")   # impo_hatch_mp3_selftest
     else()
         list(APPEND srcs "impo_chat_link.c")   # text replies over Link's session
@@ -109,7 +109,7 @@ if(CONFIG_IMPO_ENABLED)
 elseif(CONFIG_HOMEHUB_VOICE)
     # The Voice PE board uses just the Hatch voice session; the project's main/
     # voice_impo_chat.c stands in for the Impo settings, Wi-Fi and Link hooks.
-    list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp" "impo_chat_text.c" "impo_text.c" "impo_wav.c")
+    list(APPEND srcs "impo_chat.c" "impo_account_api.c" "impo_chat_session.cpp" "impo_note_aac.c" "impo_chat_text.c" "impo_text.c" "impo_wav.c")
     list(APPEND embed "test_reply.mp3")
 endif()
 
@@ -122,6 +122,8 @@ set(impo_priv_requires
 # Requirements can't follow CONFIG_ here (they're read before the config is):
 # the SparkBot's IMU driver and the touch pads are listed for every board.
 list(APPEND impo_priv_requires camera bmi270 esp_driver_touch_sens)
+# The voice note's AAC encoder (impo_note_aac.c), on boards with PSRAM.
+list(APPEND impo_priv_requires espressif__esp_audio_codec)
 if(CONFIG_IMPO_CAMERA)
     list(APPEND srcs "impo_camera.c")
 endif()

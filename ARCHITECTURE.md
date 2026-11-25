@@ -136,8 +136,8 @@ sequenceDiagram
     participant G as Gateway
     participant W as API
     participant A as Agent
-    D->>G: POST /api/voice/dictation (24 kHz PCM, while held)
-    G->>W: /tasks/:id/voice-messages (WAV) to transcript, submission
+    D->>G: POST /chat/stream, the voice note streamed while held (AAC; WAV without PSRAM)
+    G->>W: voice-messages (the note as it came) to transcript, submission
     W-->>G: ack messageId, text
     G-->>D: chat/stream ack — captions show the transcript
     W->>A: the message, in the gadget's standing task

@@ -52,8 +52,23 @@ HEAD = (b'{"message":"","output_modality":"text","items":[{"type":"file",'
         b'"mime_type":"audio/wav","filename":"voice_note.wav","data_base64":"')
 TAIL = b'"}]}'
 # impo_chat_session.cpp chats on a connection of its own, so it names the gadget
-# first (impo_link_node_id, "homelink-test01" in its harness).
-HATCH_HEAD = b'{"device_id":"homelink-test01",' + HEAD[1:]
+# first (impo_link_node_id, "homelink-test01" in its harness), and its note is
+# AAC (impo_note_aac.h).
+HATCH_HEAD = (b'{"device_id":"homelink-test01","message":"","output_modality":"text","items":[{"type":"file",'
+              b'"mime_type":"audio/aac","filename":"voice_note.aac","data_base64":"')
+FRAME = 2048          # IMPO_NOTE_FRAME_BYTES: 1024 samples of 16 kHz PCM
+FAKE_OUT = 1000       # what the harness's encoder makes of a frame: its first bytes
+FLUSH_FRAMES = 2      # NOTE_FLUSH_FRAMES
+
+
+def fake_aac(pcm):
+    """The note the harness's encoder makes: each frame's first FAKE_OUT bytes,
+    the last frame padded with silence, then FLUSH_FRAMES of silence."""
+    frames = [pcm[at:at + FRAME] for at in range(0, len(pcm), FRAME)]
+    if frames and len(frames[-1]) < FRAME:
+        frames[-1] += bytes(FRAME - len(frames[-1]))
+    frames += [bytes(FRAME)] * FLUSH_FRAMES
+    return b''.join(frame[:FAKE_OUT] for frame in frames)
 
 
 def pcm_bytes(n, seed):
@@ -83,10 +98,14 @@ class NoteRequestAssertions:
 
     HEAD = HEAD
 
+    def encoded(self, pcm):
+        """The note's audio as the device sends it: a streamed WAV here."""
+        return riff_header(16000) + pcm
+
     def assert_request(self, run, pcm, part_pcm, part_chars):
-        wav = riff_header(16000) + pcm
-        self.assertEqual(run['body'], self.HEAD + base64.b64encode(wav) + TAIL)
-        self.assertEqual(run['parts'], expected_parts(len(wav), part_pcm, part_chars, self.HEAD))
+        audio = self.encoded(pcm)
+        self.assertEqual(run['body'], self.HEAD + base64.b64encode(audio) + TAIL)
+        self.assertEqual(run['parts'], expected_parts(len(audio), part_pcm, part_chars, self.HEAD))
         self.assertEqual(run['ends'], [False] * (len(run['parts']) - 1) + [True])
         if run['body_sent'] is not None:
             self.assertEqual(run['body_sent'], len(run['body']))
@@ -254,6 +273,9 @@ static int64_t now_us(void) { return 4242; }
 static const char *failed = "-";
 static void turn_fail(const char *why) { failed = why; s_turn.phase = P_IDLE; }
 static const char *impo_link_node_id(void) { return "homelink-test01"; }
+/* The encoder: a frame's first FAKE_OUT bytes, so the test can see each one. */
+static void impo_note_aac_reset(void) {}
+static int impo_note_aac_encode(const uint8_t *pcm, uint8_t *out) { memcpy(out, pcm, 1000); return 1000; }
 extern "C" void impo_state_page(bool, int *cols, int *lines) { *cols = 16; *lines = 2; }
 '''
 
@@ -272,7 +294,8 @@ int main(int argc, char **argv)
     for (size_t got; (got = fread(mic + mic_len, 1, cap - mic_len, stdin)) > 0;) mic_len += got;
     /* Sized as impo_hatch_start() allocates them, so ASan catches an overrun. */
     s_turn.chunk = static_cast<uint8_t *>(malloc(DICT_CHUNK_BYTES + sizeof(IMPO_HATCH_NOTE_TAIL)));
-    s_turn.note = static_cast<uint8_t *>(malloc(NOTE_PART_BYTES));
+    s_turn.note = static_cast<uint8_t *>(malloc(NOTE_PART_BYTES + IMPO_NOTE_OUT_MAX));
+    s_turn.frame = static_cast<uint8_t *>(malloc(IMPO_NOTE_FRAME_BYTES));
     s_turn.phase = P_LISTEN;
     bool ok = open_note();
     while (ok && s_turn.phase == P_LISTEN && mic_avail < mic_len) {
@@ -306,7 +329,7 @@ class HatchVoiceNote(NoteRequestAssertions, unittest.TestCase):
     the source with the transport and mic backlog stubbed."""
 
     HEAD = HATCH_HEAD
-    PART_PCM, PART_CHARS = 6144, 8192   # NOTE_PART_BYTES and the chunk it base64s to
+    PART_PCM, PART_CHARS = 6144, 8192   # NOTE_PART_BYTES of AAC and the chunk it base64s to
     MIC = 16000 * 2
 
     @classmethod
@@ -331,6 +354,8 @@ class HatchVoiceNote(NoteRequestAssertions, unittest.TestCase):
 #include "host_compat.h"
 #include "minimp3.h"
 #include "impo_chat_priv.h"
+#define IMPO_NOTE_FRAME_BYTES (1024 * 2)   /* impo_note_aac.h, whose functions the driver fakes */
+#define IMPO_NOTE_OUT_MAX 1024
 #define ESP_LOGI(...) ((void)0)
 /* Not assert(): the fakes must still check under -DNDEBUG. */
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #c); exit(3); } } while (0)
@@ -364,6 +389,9 @@ typedef struct fake_stream *StreamBufferHandle_t;
         self.assertEqual(ran.stderr, b'')
         return parse_run(ran.stdout)
 
+    def encoded(self, pcm):
+        return fake_aac(pcm)
+
     def assert_sent(self, run, pcm):
         self.assertTrue(run['ok'])
         self.assertEqual(run['failed'], '-')
@@ -374,32 +402,38 @@ typedef struct fake_stream *StreamBufferHandle_t;
 
     def test_short_note_fails_before_the_body_is_finalized(self):
         # Under 0.3 s calls turn_fail() before the last chunk: no tail and no
-        # end flag. Parts that streamed during the press stay sent; resetting
-        # the half-sent stream is turn_fail()'s job, stubbed here.
-        for n, parts in ((3200, [len(self.HEAD)]), (9598, [len(self.HEAD), self.PART_CHARS])):
+        # end flag. Resetting the half-sent stream is turn_fail()'s job, stubbed here.
+        for n in (3200, 9598):
             run = self.record(pcm_bytes(n, n), 320)
             self.assertEqual(run['failed'], "DIDN'T CATCH THAT", n)
-            self.assertEqual(run['parts'], parts, n)
+            self.assertEqual(run['parts'], [len(self.HEAD)], n)
             self.assertNotIn(True, run['ends'], n)
             self.assertEqual(run['body_sent'], len(run['body']), n)
             self.assertEqual((run['phase'], run['chat_posted']), ('idle', False), n)
         pcm = pcm_bytes(9600, 9600)   # exactly 0.3 s is kept
         self.assert_sent(self.record(pcm, 320), pcm)
 
-    def test_note_ending_on_a_part_boundary(self):
-        # The header shares the first part, so 6100 bytes of PCM fill it. Two
-        # parts (6100 bytes alone is under 0.3 s) end the PCM on a boundary,
-        # and the release sends only the tail.
-        pcm = pcm_bytes(2 * self.PART_PCM - 44, 4)
-        run = self.record(pcm, self.PART_PCM - 44)
+    def test_note_streams_while_recorded(self):
+        # 22 frames (two of them the flush) make 22000 bytes of AAC: three whole
+        # parts go while it records, the release sends the rest and the tail.
+        pcm = pcm_bytes(20 * FRAME, 4)
+        run = self.record(pcm, 320)
         self.assert_sent(run, pcm)
-        self.assertEqual(run['parts'], [len(self.HEAD), self.PART_CHARS, self.PART_CHARS, len(TAIL)])
+        self.assertEqual(run['parts'], [len(self.HEAD)] + [self.PART_CHARS] * 3 + [(22000 - 3 * 6144 + 2) // 3 * 4 + len(TAIL)])
+
+    def test_last_frame_is_padded_with_silence(self):
+        # Seven whole frames and 600 bytes of the eighth, padded, then the flush.
+        pcm = pcm_bytes(7 * FRAME + 600, 7)
+        run = self.record(pcm, 640)
+        self.assert_sent(run, pcm)
+        self.assertEqual(base64.b64decode(run['body'][len(self.HEAD):-len(TAIL)])[7000:8000],
+                         pcm[7 * FRAME:] + bytes(FAKE_OUT - 600))
 
     def test_uneven_receives_across_several_parts(self):
-        pcm = pcm_bytes(self.PART_PCM - 44 + 3 * self.PART_PCM + 1000, 5)
+        pcm = pcm_bytes(13 * FRAME + 1000, 5)
         # Mic data trickling in, then all of it waiting with receives that
-        # stop the first part 2 bytes short of full.
-        for step, sched in ((320, (2, 6, 1000, 34, 4094, 6144)), (len(pcm), (self.PART_PCM - 46, 2, 6, 4094))):
+        # stop a frame 2 bytes short of full.
+        for step, sched in ((320, (2, 6, 1000, 34, 4094, 6144)), (len(pcm), (FRAME - 2, 2, 6, 4094))):
             with self.subTest(step=step, sched=sched):
                 self.assert_sent(self.record(pcm, step, sched=sched), pcm)
 

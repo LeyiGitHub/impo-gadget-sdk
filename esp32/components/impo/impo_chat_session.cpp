@@ -69,6 +69,7 @@ extern "C" {
 #include "minimp3.h"
 #include "impo_account_api.h"
 #include "impo_link.h"
+#include "impo_note_aac.h"
 #include "impo_settings.h"
 #include "impo_wifi.h"
 }
@@ -124,7 +125,8 @@ static const char *TAG = "impo_chat_session";
  */
 #define VOICE_NOTE 1
 #define NOTE_MAX_BYTES (MIC_RATE * 2 * 20) /* 20 s of 16 kHz PCM; Impo stops at 15 */
-#define NOTE_PART_BYTES (DICT_CHUNK_BYTES / 4 * 3)   /* staged PCM that base64s to one body chunk */
+#define NOTE_PART_BYTES (DICT_CHUNK_BYTES / 4 * 3)   /* staged AAC that base64s to one body chunk */
+#define NOTE_FLUSH_FRAMES 2                /* silence after the last frame brings out what the encoder holds */
 
 #define MAX_MSGS 8
 
@@ -231,7 +233,9 @@ struct turn_t {
     resampler_t up;
     uint8_t *chunk;          /* DICT_CHUNK_BYTES, plus the note's tail */
     size_t chunk_len;
-    uint8_t *note;           /* NOTE_PART_BYTES of 16 kHz PCM waiting for base64 */
+    uint8_t *frame;          /* IMPO_NOTE_FRAME_BYTES of 16 kHz PCM waiting for the encoder */
+    size_t frame_len;
+    uint8_t *note;           /* NOTE_PART_BYTES + IMPO_NOTE_OUT_MAX of AAC waiting for base64 */
     size_t note_len;
     size_t pcm_bytes;        /* the note so far */
     size_t body_sent;
@@ -1024,12 +1028,13 @@ static bool turn_start(uint32_t gen, bool text)
             turn_finish();
         }
     }
-    uint8_t *chunk = s_turn.chunk, *mp3 = s_turn.mp3, *note = s_turn.note;
+    uint8_t *chunk = s_turn.chunk, *mp3 = s_turn.mp3, *note = s_turn.note, *frame = s_turn.frame;
     char *texts = s_turn.texts;
     s_turn = turn_t{};
     s_turn.chunk = chunk;
     s_turn.mp3 = mp3;
     s_turn.note = note;
+    s_turn.frame = frame;
     s_turn.texts = texts;
     s_turn.gen = gen;
     s_turn.text = text;
@@ -1126,26 +1131,42 @@ static bool pump_mic(void)
 
 /* ---- Turn: voice note ---- */
 
-/* Base64-encodes the staged PCM into one body chunk; `last` pads and closes the request. */
+/*
+ * Base64-encodes NOTE_PART_BYTES of the staged AAC into one body chunk, or with
+ * `last` all of it, padded, and closes the request.
+ */
 static bool send_note_part(bool last)
 {
+    size_t take = last || s_turn.note_len < NOTE_PART_BYTES ? s_turn.note_len : NOTE_PART_BYTES;
     char *o = reinterpret_cast<char *>(s_turn.chunk);
-    o += impo_hatch_base64(s_turn.note, s_turn.note_len, o);
+    o += impo_hatch_base64(s_turn.note, take, o);
     if (last) {
         memcpy(o, IMPO_HATCH_NOTE_TAIL, sizeof(IMPO_HATCH_NOTE_TAIL) - 1);
         o += sizeof(IMPO_HATCH_NOTE_TAIL) - 1;
     }
     size_t n = o - reinterpret_cast<char *>(s_turn.chunk);
     s_turn.body_sent += n;
-    s_turn.note_len = 0;
+    memmove(s_turn.note, s_turn.note + take, s_turn.note_len - take);
+    s_turn.note_len -= take;
     return send_body(s_turn.chat_id, s_turn.chunk, n, last);
 }
 
+/* Encodes the staged frame onto the note and sends what makes a whole part. */
+static bool encode_frame(bool *failed)
+{
+    int n = impo_note_aac_encode(s_turn.frame, s_turn.note + s_turn.note_len);
+    s_turn.frame_len = 0;
+    if (n < 0) {
+        *failed = true;
+        return true;
+    }
+    s_turn.note_len += (size_t)n;
+    return s_turn.note_len < NOTE_PART_BYTES || send_note_part(false);
+}
+
 /*
- * Opens the chat request at the press and streams the note while it's
- * recorded, so only the last chunk goes out after the release. The length
- * isn't known until the end, so the WAV header gives the streaming "unknown"
- * size and the server reads to the end of the data.
+ * Opens the chat request at the press and streams the note, as AAC, while it's
+ * recorded, so only the last chunk goes out after the release.
  */
 static bool open_note(void)
 {
@@ -1153,8 +1174,8 @@ static bool open_note(void)
     if (!s_turn.chat_id) {
         return false;
     }
-    char head[sizeof(IMPO_HATCH_NOTE_HEAD) + 64];
-    int n = snprintf(head, sizeof(head), "{\"device_id\":\"%s\",%s", impo_link_node_id(), &IMPO_HATCH_NOTE_HEAD[1]);
+    char head[sizeof(IMPO_HATCH_AAC_NOTE_HEAD) + 64];
+    int n = snprintf(head, sizeof(head), "{\"device_id\":\"%s\",%s", impo_link_node_id(), &IMPO_HATCH_AAC_NOTE_HEAD[1]);
     if (n <= 0 || (size_t)n >= sizeof(head)) {
         return false;
     }
@@ -1162,26 +1183,32 @@ static bool open_note(void)
     if (!send_body(s_turn.chat_id, reinterpret_cast<const uint8_t *>(head), (size_t)n, false)) {
         return false;
     }
-    impo_hatch_wav_header(s_turn.note, MIC_RATE);
-    s_turn.note_len = IMPO_HATCH_WAV_HEADER;
+    impo_note_aac_reset();
+    s_turn.frame_len = 0;
+    s_turn.note_len = 0;
     return true;
 }
 
 /* Moves the mic into the note request; on release, sends the rest and waits for the reply. */
 static bool record_note(void)
 {
+    bool failed = false;
     for (;;) {
-        size_t room = NOTE_PART_BYTES - s_turn.note_len;
+        size_t room = IMPO_NOTE_FRAME_BYTES - s_turn.frame_len;
         size_t left = NOTE_MAX_BYTES - s_turn.pcm_bytes;
         room = (room < left ? room : left) & ~(size_t)1;
-        size_t got = room ? xStreamBufferReceive(s_in, s_turn.note + s_turn.note_len, room, 0) : 0;
+        size_t got = room ? xStreamBufferReceive(s_in, s_turn.frame + s_turn.frame_len, room, 0) : 0;
         if (!got) {
             break;
         }
-        s_turn.note_len += got;
+        s_turn.frame_len += got;
         s_turn.pcm_bytes += got;
-        if (s_turn.note_len == NOTE_PART_BYTES && !send_note_part(false)) {
+        if (s_turn.frame_len == IMPO_NOTE_FRAME_BYTES && !encode_frame(&failed)) {
             return false;
+        }
+        if (failed) {
+            turn_fail("CAN'T RECORD");   /* resets the half-sent request */
+            return true;
         }
     }
     if (!s_turn.end_requested && s_turn.pcm_bytes < NOTE_MAX_BYTES) {
@@ -1191,6 +1218,17 @@ static bool record_note(void)
     double secs = (double)s_turn.pcm_bytes / (MIC_RATE * 2);
     if (secs < 0.3) {
         turn_fail("DIDN'T CATCH THAT");   /* resets the half-sent request */
+        return true;
+    }
+    /* The last frame padded with silence, then silence to bring out the rest. */
+    for (int i = s_turn.frame_len ? 0 : 1; i <= NOTE_FLUSH_FRAMES && !failed; i++) {
+        memset(s_turn.frame + s_turn.frame_len, 0, IMPO_NOTE_FRAME_BYTES - s_turn.frame_len);
+        if (!encode_frame(&failed)) {
+            return false;
+        }
+    }
+    if (failed) {
+        turn_fail("CAN'T RECORD");
         return true;
     }
     if (!send_note_part(true)) {
@@ -2144,7 +2182,12 @@ extern "C" void impo_hatch_start(void)
     s_out = xStreamBufferCreateWithCaps(OUT_BYTES, 1, MALLOC_CAP_SPIRAM);
     s_turn.chunk = static_cast<uint8_t *>(psram_alloc(DICT_CHUNK_BYTES + sizeof(IMPO_HATCH_NOTE_TAIL)));
     s_turn.mp3 = static_cast<uint8_t *>(psram_alloc(MP3_BUF));
-    s_turn.note = VOICE_NOTE ? static_cast<uint8_t *>(psram_alloc(NOTE_PART_BYTES)) : nullptr;
+    s_turn.note = VOICE_NOTE ? static_cast<uint8_t *>(psram_alloc(NOTE_PART_BYTES + IMPO_NOTE_OUT_MAX)) : nullptr;
+    s_turn.frame = VOICE_NOTE ? static_cast<uint8_t *>(psram_alloc(IMPO_NOTE_FRAME_BYTES)) : nullptr;
+    size_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    bool encoder = !VOICE_NOTE || impo_note_aac_open();
+    ESP_LOGI(TAG, "voice note encoder: %s, %u bytes of internal RAM", encoder ? "ready" : "failed",
+             (unsigned)(internal - heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
     s_turn.texts = static_cast<char *>(psram_alloc(MAX_MSGS * TEXT_MAX));   /* captions just stay untimed without it */
     s_pcm = static_cast<int16_t *>(psram_alloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t)));
     s_pcm16 = static_cast<int16_t *>(psram_alloc((MINIMP3_MAX_SAMPLES_PER_FRAME + 8) * sizeof(int16_t)));
@@ -2154,7 +2197,7 @@ extern "C" void impo_hatch_start(void)
     }
     s_turn.tts_msg = -1;
     /* Stack in PSRAM: TLS, Noise and the MP3 decoder (~16 KB of scratch) all run here. */
-    if (!s_cmds || !s_events || !s_in || !s_out || !s_turn.chunk || !s_turn.mp3 || (VOICE_NOTE && !s_turn.note) || !s_pcm || !s_pcm16 ||
+    if (!s_cmds || !s_events || !s_in || !s_out || !s_turn.chunk || !s_turn.mp3 || (VOICE_NOTE && (!s_turn.note || !s_turn.frame || !encoder)) || !s_pcm || !s_pcm16 ||
         xTaskCreatePinnedToCoreWithCaps(hatch_task, "impo_chat", 48 * 1024, nullptr, 5, nullptr, 0,
                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         ESP_LOGE(TAG, "start failed");

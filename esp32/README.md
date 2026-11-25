@@ -240,8 +240,9 @@ To work on the UI without a board, use the
 and avatar renderer in a 412 x 412 SenseCAP Watcher window, supports mouse and
 keyboard input, and can render scripted screenshots without a display server.
 
-Replies from Impo are text: push-to-talk sends your voice note, Impo
-transcribes it and answers in writing, and boards with a screen show the
+Replies from Impo are text: push-to-talk sends your voice note (AAC, 16 kHz
+mono at 24 kbit/s on boards with PSRAM, as the phone apps record theirs; a WAV
+on boards without), Impo transcribes it and answers in writing, and boards with a screen show the
 answer as captions (Voice PE and reSpeaker Lite replies show up in the Impo app). Two
 things you can change:
 

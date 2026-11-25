@@ -72,6 +72,10 @@ static inline void impo_chat_reject(impo_chat_rejected_t *rejected, const char *
     "{\"message\":\"\",\"output_modality\":\"text\",\"items\":[{\"type\":\"file\"," \
     "\"mime_type\":\"audio/wav\",\"filename\":\"voice_note.wav\",\"data_base64\":\""
 #define IMPO_HATCH_NOTE_TAIL "\"}]}"
+/* The same with an AAC note (impo_note_aac.h), on boards with PSRAM. */
+#define IMPO_HATCH_AAC_NOTE_HEAD \
+    "{\"message\":\"\",\"output_modality\":\"text\",\"items\":[{\"type\":\"file\"," \
+    "\"mime_type\":\"audio/aac\",\"filename\":\"voice_note.aac\",\"data_base64\":\""
 #define IMPO_HATCH_WAV_HEADER 44
 
 /* Voice note helpers (impo_chat_text.c). The note's length isn't known until

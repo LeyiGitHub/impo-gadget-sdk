@@ -249,7 +249,7 @@ things you can change:
   one sentence."
 - **Spoken answers.** On boards with PSRAM, each reply is spoken: `start_tts`
   in [`components/impo/impo_chat_session.cpp`](components/impo/impo_chat_session.cpp)
-  asks the gateway for the message's speech (`POST /tts`, answered with a WAV
+  asks the gateway for the message's speech (`POST /tts`, answered with an MP3
   made by Impo's text to speech) and plays it as it arrives, captions
   following. A reply the gateway can't speak is shown at reading pace. No
   key for the speech service is on the gadget.

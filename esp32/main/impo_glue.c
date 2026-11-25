@@ -404,6 +404,7 @@ static const impo_link_ops_t s_ops = {
     .hatch_linked = op_hatch_linked,
     .hatch_vm = op_hatch_vm,
     .talk_press = op_talk_press,
+    .node_id = identity_node_id,
     .reset_setup = op_reset_setup,
     .req_ready = noise_ctrl_is_connected,
     .req_open = noise_ctrl_req_open,

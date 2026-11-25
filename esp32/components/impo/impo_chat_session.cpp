@@ -70,7 +70,6 @@ extern "C" {
 #include "impo_account_api.h"
 #include "impo_link.h"
 #include "impo_settings.h"
-#include "impo_wav.h"
 #include "impo_wifi.h"
 }
 #include "impo_chat_priv.h"
@@ -248,17 +247,13 @@ struct turn_t {
     /* TTS */
     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
     bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
-    uint8_t *mp3;            /* MP3_BUF: the speech as it arrives, MP3 or WAV */
+    uint8_t *mp3;            /* MP3_BUF: the speech as it arrives */
     size_t mp3_len;
     bool mp3_ended;
     mp3dec_t dec;
     resampler_t down;
     int kbps;
     int down_rate;
-    enum : uint8_t { F_UNKNOWN, F_MP3, F_WAV } format;   /* told apart by the first bytes */
-    int wav_channels;
-    size_t wav_left;         /* bytes of the WAV's data chunk not yet played (SIZE_MAX: not said) */
-    size_t wav_dropped;      /* bytes after it */
 };
 
 /* 10 KB, most of it the MP3 decoder: in PSRAM on boards that let static data go
@@ -1158,8 +1153,13 @@ static bool open_note(void)
     if (!s_turn.chat_id) {
         return false;
     }
-    s_turn.body_sent = sizeof(IMPO_HATCH_NOTE_HEAD) - 1;
-    if (!send_body(s_turn.chat_id, reinterpret_cast<const uint8_t *>(IMPO_HATCH_NOTE_HEAD), sizeof(IMPO_HATCH_NOTE_HEAD) - 1, false)) {
+    char head[sizeof(IMPO_HATCH_NOTE_HEAD) + 64];
+    int n = snprintf(head, sizeof(head), "{\"device_id\":\"%s\",%s", impo_link_node_id(), &IMPO_HATCH_NOTE_HEAD[1]);
+    if (n <= 0 || (size_t)n >= sizeof(head)) {
+        return false;
+    }
+    s_turn.body_sent = (size_t)n;
+    if (!send_body(s_turn.chat_id, reinterpret_cast<const uint8_t *>(head), (size_t)n, false)) {
         return false;
     }
     impo_hatch_wav_header(s_turn.note, MIC_RATE);
@@ -1212,6 +1212,7 @@ static void send_chat(const char *text, const char *modality)
 {
     s_turn.chat_posted = true;
     cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "device_id", impo_link_node_id());
     cJSON_AddStringToObject(body, "message", text);
     cJSON_AddStringToObject(body, "output_modality", modality);
     char *json = cJSON_PrintUnformatted(body);
@@ -1542,7 +1543,7 @@ static void on_chat_ack(stream_t *s)
 
 /*
  * Asks the gateway for the spoken form of message i (POST /tts, answered with
- * a WAV body that stream_data() hands to tts_data()). False when the request
+ * an MP3 body that stream_data() hands to tts_data()). False when the request
  * couldn't be sent; the message is then shown silently instead.
  */
 static int64_t request_speech(const char *text, int msg);
@@ -1561,7 +1562,7 @@ static int64_t request_speech(const char *text, int msg)
     cJSON_Delete(body);
     size_t len = json ? strlen(json) : 0;
     bool whole = len <= CHAT_PART;
-    int64_t id = json ? open_stream(K_TTS, "POST", "/tts", "application/json", "audio/wav", whole ? json : nullptr, whole) : 0;
+    int64_t id = json ? open_stream(K_TTS, "POST", "/tts", "application/json", "audio/mpeg", whole ? json : nullptr, whole) : 0;
     bool ok = id != 0;
     for (size_t off = 0; ok && !whole && off < len; off += CHAT_PART) {
         size_t n = len - off < CHAT_PART ? len - off : CHAT_PART;
@@ -1601,7 +1602,6 @@ static void start_tts(void)
         s_turn.mp3_ended = false;
         s_turn.kbps = 0;
         s_turn.down_rate = 0;
-        s_turn.format = turn_t::F_UNKNOWN;
         mp3dec_init(&s_turn.dec);
         if (request_tts(i)) {
             m.pcm_frames = 0;
@@ -1669,62 +1669,7 @@ static void pace_silently(void)
     }
 }
 
-/* Plays buffered 16-bit PCM (a WAV past its header) while the reply buffer has room. */
-static void play_wav(void)
-{
-    size_t off = 0;
-    size_t frame_bytes = 2 * s_turn.wav_channels;
-    size_t room_frames = MINIMP3_MAX_SAMPLES_PER_FRAME / 2;
-    /* Only the data chunk is sound (impo_wav.h). */
-    size_t samples = s_turn.mp3_len < s_turn.wav_left ? s_turn.mp3_len : s_turn.wav_left;
-    while (samples - off >= frame_bytes &&
-           xStreamBufferSpacesAvailable(s_out) >= (room_frames + 8) * sizeof(int16_t)) {
-        size_t frames = (samples - off) / frame_bytes;
-        if (frames > room_frames) {
-            frames = room_frames;
-        }
-        const uint8_t *in = s_turn.mp3 + off;
-        for (size_t k = 0; k < frames; k++) {
-            int16_t l = (int16_t)(in[k * frame_bytes] | in[k * frame_bytes + 1] << 8);
-            int16_t r = s_turn.wav_channels == 2 ? (int16_t)(in[k * frame_bytes + 2] | in[k * frame_bytes + 3] << 8) : l;
-            s_pcm[k] = (int16_t)((l + r) / 2);
-        }
-        off += frames * frame_bytes;
-        size_t n = resample(&s_turn.down, s_pcm, frames, s_pcm16);
-        if (s_turn.gen == s_gen.load()) {
-            mark(M_AUDIO);
-            xStreamBufferSend(s_out, s_pcm16, n * sizeof(int16_t), 0);
-        }
-        s_turn.pcm_out += n;
-    }
-    if (s_turn.wav_left != SIZE_MAX) {
-        s_turn.wav_left -= off;
-        if (s_turn.wav_left < frame_bytes) {
-            s_turn.wav_dropped += s_turn.mp3_len - off;
-            off = s_turn.mp3_len;   /* the samples are done: what follows isn't sound, drop it as it comes */
-        }
-    }
-    if (off) {
-        memmove(s_turn.mp3, s_turn.mp3 + off, s_turn.mp3_len - off);
-        s_turn.mp3_len -= off;
-    }
-    samples = s_turn.mp3_len < s_turn.wav_left ? s_turn.mp3_len : s_turn.wav_left;
-    msg_t &m = s_turn.msgs[s_turn.tts_msg];
-    if (s_turn.mp3_ended) {
-        /* All of it is here: what's played plus what's left in the buffer. */
-        m.pcm_frames = s_turn.pcm_out - m.pcm_start + (uint32_t)((uint64_t)(samples / frame_bytes) * MIC_RATE / s_turn.down_rate);
-    }
-    if (s_turn.mp3_ended && samples < frame_bytes) {
-        if (s_turn.wav_dropped) {
-            ESP_LOGI(TAG, "reply audio: %u bytes after the samples dropped", (unsigned)s_turn.wav_dropped);
-        }
-        m.pcm_frames = s_turn.pcm_out - m.pcm_start;
-        m.tts = TTS_FINISHED;
-        s_turn.tts_msg = -1;
-    }
-}
-
-/* Decodes buffered speech, MP3 or WAV, while the reply buffer has room. */
+/* Decodes buffered MP3 speech while the reply buffer has room. */
 static void decode(void)
 {
     if (s_turn.tts_msg < 0) {
@@ -1732,38 +1677,6 @@ static void decode(void)
     }
     if (s_turn.silent) {
         pace_silently();
-        return;
-    }
-    if (s_turn.format == turn_t::F_UNKNOWN) {
-        if (s_turn.mp3_len < 12 && !s_turn.mp3_ended) {
-            return;
-        }
-        if (!memcmp(s_turn.mp3, "RIFF", 4)) {
-            impo_wav_t wav;
-            if (!impo_wav_header(s_turn.mp3, s_turn.mp3_len, &wav)) {
-                if (s_turn.mp3_ended || s_turn.mp3_len >= 256) {
-                    ESP_LOGW(TAG, "speech is not 16-bit PCM WAV");
-                    s_turn.mp3_len = 0;
-                    s_turn.mp3_ended = true;
-                    s_turn.format = turn_t::F_MP3;   /* drains as empty below */
-                }
-                return;
-            }
-            ESP_LOGI(TAG, "reply audio: WAV %d Hz, %d ch", wav.rate, wav.channels);
-            s_turn.format = turn_t::F_WAV;
-            s_turn.wav_channels = wav.channels;
-            s_turn.wav_left = wav.data_bytes;
-            s_turn.wav_dropped = 0;
-            s_turn.down_rate = wav.rate;
-            resampler_init(&s_turn.down, wav.rate, MIC_RATE);
-            memmove(s_turn.mp3, s_turn.mp3 + wav.skip, s_turn.mp3_len - wav.skip);
-            s_turn.mp3_len -= wav.skip;
-        } else {
-            s_turn.format = turn_t::F_MP3;
-        }
-    }
-    if (s_turn.format == turn_t::F_WAV) {
-        play_wav();
         return;
     }
     /*

@@ -78,6 +78,7 @@ typedef struct {
     impo_link_vm_t (*hatch_vm)(const char *want_vm, bool fresh, char *vm_id, size_t id_cap,
                                char *vm_name, size_t name_cap, char **vm_token);
     bool (*talk_press)(void);                     /* true: Link used the press (pairing confirm) */
+    const char *(*node_id)(void);                 /* the node_id Link registers ("homelink-xxxxxx") */
     void (*reset_setup)(void);                    /* forget Link setup and reboot */
     /* Requests to the VM on Link's own Noise session, for boards without PSRAM for their own. */
     bool (*req_ready)(void);                      /* the session is up */
@@ -106,6 +107,10 @@ bool impo_link_hatch_linked(void);
 impo_link_vm_t impo_link_hatch_vm(const char *want_vm, bool fresh, char *vm_id, size_t id_cap,
                                   char *vm_name, size_t name_cap, char **vm_token);
 bool impo_link_talk_press(void);
+/* The node_id Link registers the gadget as; "" before Link knows it. A chat on
+ * a connection of its own names it, as the gateway binds that connection to the
+ * gadget only by it. */
+const char *impo_link_node_id(void);
 void impo_link_reset_setup(void);
 
 /*

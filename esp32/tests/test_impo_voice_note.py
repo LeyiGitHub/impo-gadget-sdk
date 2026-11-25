@@ -51,17 +51,20 @@ def riff_header(rate):
 HEAD = (b'{"message":"","output_modality":"text","items":[{"type":"file",'
         b'"mime_type":"audio/wav","filename":"voice_note.wav","data_base64":"')
 TAIL = b'"}]}'
+# impo_chat_session.cpp chats on a connection of its own, so it names the gadget
+# first (impo_link_node_id, "homelink-test01" in its harness).
+HATCH_HEAD = b'{"device_id":"homelink-test01",' + HEAD[1:]
 
 
 def pcm_bytes(n, seed):
     return random.Random(seed).randbytes(n)
 
 
-def expected_parts(wav_len, part_pcm, part_chars):
+def expected_parts(wav_len, part_pcm, part_chars, head=HEAD):
     """Chunk lengths of a note request: the head, a full chunk per whole part,
     then the remainder's base64 and the tail."""
     full, rest = divmod(wav_len, part_pcm)
-    return [len(HEAD)] + [part_chars] * full + [(rest + 2) // 3 * 4 + len(TAIL)]
+    return [len(head)] + [part_chars] * full + [(rest + 2) // 3 * 4 + len(TAIL)]
 
 
 def compile_c(out, sources):
@@ -78,14 +81,16 @@ def compile_c(out, sources):
 class NoteRequestAssertions:
     """Checks a captured request against a body built from CPython's base64."""
 
+    HEAD = HEAD
+
     def assert_request(self, run, pcm, part_pcm, part_chars):
         wav = riff_header(16000) + pcm
-        self.assertEqual(run['body'], HEAD + base64.b64encode(wav) + TAIL)
-        self.assertEqual(run['parts'], expected_parts(len(wav), part_pcm, part_chars))
+        self.assertEqual(run['body'], self.HEAD + base64.b64encode(wav) + TAIL)
+        self.assertEqual(run['parts'], expected_parts(len(wav), part_pcm, part_chars, self.HEAD))
         self.assertEqual(run['ends'], [False] * (len(run['parts']) - 1) + [True])
         if run['body_sent'] is not None:
             self.assertEqual(run['body_sent'], len(run['body']))
-        at = len(HEAD)
+        at = len(self.HEAD)
         for size in run['parts'][1:-1]:
             chunk = run['body'][at:at + size]
             self.assertEqual(len(chunk), part_chars)
@@ -248,6 +253,7 @@ static void mark(mark_t) {}
 static int64_t now_us(void) { return 4242; }
 static const char *failed = "-";
 static void turn_fail(const char *why) { failed = why; s_turn.phase = P_IDLE; }
+static const char *impo_link_node_id(void) { return "homelink-test01"; }
 extern "C" void impo_state_page(bool, int *cols, int *lines) { *cols = 16; *lines = 2; }
 '''
 
@@ -299,6 +305,7 @@ class HatchVoiceNote(NoteRequestAssertions, unittest.TestCase):
     """impo_chat_session.cpp's open_note/record_note/send_note_part, cut out of
     the source with the transport and mic backlog stubbed."""
 
+    HEAD = HATCH_HEAD
     PART_PCM, PART_CHARS = 6144, 8192   # NOTE_PART_BYTES and the chunk it base64s to
     MIC = 16000 * 2
 
@@ -369,7 +376,7 @@ typedef struct fake_stream *StreamBufferHandle_t;
         # Under 0.3 s calls turn_fail() before the last chunk: no tail and no
         # end flag. Parts that streamed during the press stay sent; resetting
         # the half-sent stream is turn_fail()'s job, stubbed here.
-        for n, parts in ((3200, [len(HEAD)]), (9598, [len(HEAD), self.PART_CHARS])):
+        for n, parts in ((3200, [len(self.HEAD)]), (9598, [len(self.HEAD), self.PART_CHARS])):
             run = self.record(pcm_bytes(n, n), 320)
             self.assertEqual(run['failed'], "DIDN'T CATCH THAT", n)
             self.assertEqual(run['parts'], parts, n)
@@ -386,7 +393,7 @@ typedef struct fake_stream *StreamBufferHandle_t;
         pcm = pcm_bytes(2 * self.PART_PCM - 44, 4)
         run = self.record(pcm, self.PART_PCM - 44)
         self.assert_sent(run, pcm)
-        self.assertEqual(run['parts'], [len(HEAD), self.PART_CHARS, self.PART_CHARS, len(TAIL)])
+        self.assertEqual(run['parts'], [len(self.HEAD), self.PART_CHARS, self.PART_CHARS, len(TAIL)])
 
     def test_uneven_receives_across_several_parts(self):
         pcm = pcm_bytes(self.PART_PCM - 44 + 3 * self.PART_PCM + 1000, 5)

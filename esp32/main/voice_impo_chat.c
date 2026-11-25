@@ -27,6 +27,7 @@
 #include "freertos/FreeRTOS.h"
 
 #include "app.h"
+#include "identity.h"
 #include "config_store.h"
 #include "wifi_mgr.h"
 
@@ -63,6 +64,10 @@ impo_link_vm_t impo_link_hatch_vm(const char *want_vm, bool fresh, char *vm_id, 
     case APP_HATCH_VM_BUSY: return IMPO_LINK_VM_BUSY;
     default: return IMPO_LINK_VM_FAILED;
     }
+}
+
+const char *impo_link_node_id(void) {
+    return identity_node_id();
 }
 
 bool impo_wifi_connected(void) {

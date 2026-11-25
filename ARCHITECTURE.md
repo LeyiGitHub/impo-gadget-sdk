@@ -91,7 +91,7 @@ ever on a gadget.
 |---|---|---|
 | BLE GATT (`ImpoGadget-…`) | app ↔ gadget | setup: Wi-Fi, the pairing record, `wifi.*` and `hatch.*` commands; the USB console speaks the same `key=value` lines after `>` |
 | Gateway HTTP | gadget → gateway | `GET /fetch_vms`, `POST /device_token/refresh`, `GET /v1/noise` (WebSocket) |
-| Noise session streams | gadget ↔ gateway | `POST /link-control` (control messages), `GET /identity`, `POST /chat/stream` (a message from the gadget), `POST /chat/subscribe` (replies, NDJSON events), `POST /tts` (speech), `/api/voice/dictation` (push-to-talk audio up) |
+| Noise session streams | gadget ↔ gateway | `POST /link-control` (control messages), `GET /identity`, `POST /chat/stream` (a message from the gadget; on a connection of its own it names the gadget's `node_id` as `device_id`), `POST /chat/subscribe` (replies, NDJSON events), `POST /tts` (speech: MP3 for `accept: audio/mpeg`, WAV otherwise), `/api/voice/dictation` (push-to-talk audio up) |
 | Control messages | gadget ↔ gateway | `link.register {node_id, display_name, platform, version, commands_v2, capabilities, description?, unit_id?, attest?}` (`unit_id` and `attest` only from official units, `description` from a gadget that describes itself), `link.invoke {id, command, params}` → `link.result {id, ok, payload, error}`, `link.event {event, data, uptime_ms}`, `link.unpaired`, heartbeats |
 | Gateway admin HTTP | API → gateway | `GET /admin/vms/:vm` (pairings, devices, live sockets, chat, events, hub version), `POST .../pairings`, `DELETE .../pairings/:id`, `POST .../invoke`, `POST .../replies` |
 | Impo API | app, gateway → API | `/api/v1/gadgets[...]`, `/api/v1/conversation/*`, `/api/v1/voice/transcriptions`, `/api/v1/voice/speech`, `/api/v1/files/...` |
@@ -146,8 +146,8 @@ sequenceDiagram
     G-->>D: chat/subscribe: message_start, text_append..., message_done
     D->>G: POST /tts text (start_tts, per message)
     G->>W: /voice/speech (service token)
-    W-->>G: WAV (Gemini TTS)
-    G-->>D: the WAV as the stream body
+    W-->>G: MP3 (Gemini TTS)
+    G-->>D: the MP3 as the stream body
     D->>D: decode as it arrives, speak, captions follow the speech
 ```
 

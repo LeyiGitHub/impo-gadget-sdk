@@ -74,6 +74,12 @@ impo_link_vm_t impo_link_hatch_vm(const char *want_vm, bool fresh, char *vm_id, 
     return s_ops->hatch_vm(want_vm, fresh, vm_id, id_cap, vm_name, name_cap, vm_token);
 }
 
+const char *impo_link_node_id(void)
+{
+    const char *id = s_ops && s_ops->node_id ? s_ops->node_id() : NULL;
+    return id ? id : "";
+}
+
 bool impo_link_talk_press(void)
 {
     return s_ops && s_ops->talk_press && s_ops->talk_press();

@@ -248,9 +248,9 @@ Settled, so that nothing below has to be argued twice.
    identity and its execution contract, nothing more. Its identity is a
    proof from an official unit (`unit_id` and `attest`, a per-unit eFuse key
    over the session's handshake hash) or, from a custom gadget, a
-   `product_id` that binds only when the product's owner is the account the
-   gadget is paired to. Its execution contract is the commands it runs
-   (`commands_v2`: their names only). Everything said to the agent about
+   `product_id` that binds on whichever account the gadget is paired to.
+   Its execution contract is the commands it runs (`commands_v2`: their
+   names only). Everything said to the agent about
    it lives on the Impo platform as the product's structured manifest: a
    system prompt, the commands the agent may use with a description and a
    parameter schema each, and the events with their meanings. Makers fill

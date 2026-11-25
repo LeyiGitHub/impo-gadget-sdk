@@ -100,8 +100,8 @@ ESP32 Device SDK) to the product's ID: the lowercase UUID Impo assigned when
 the product was created. The build fails on any other value. `link.register`
 then carries `"product_id": "6f1c2b9e-4a7d-4e2b-9c1a-3d5e7f9a1b2c"`, only when the unit did not attest: an official
 unit sends `unit_id` and `attest` and never a `product_id`. Nothing is
-proven: the binding holds only when the product's owner is the account the
-gadget is paired to, and the agent then gets the product's `dev` manifest.
+proven, and nothing needs to be: the gadget binds on whichever account it is
+paired to, and the agent then gets the product's `dev` manifest.
 Left empty (the default), nothing is sent and the gadget is not set up: its
 commands work, but the agent gets no instructions or event meanings for it.
 

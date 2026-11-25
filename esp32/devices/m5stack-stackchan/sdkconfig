@@ -6,3 +6,7 @@
 # whose code is in vendor/m5stack.
 # Advertise as ImpoGadget-StackChan-XXXXXX, so it is easy to pick in the Impo app.
 CONFIG_HOMEHUB_BLE_NAME_SUFFIX="-StackChan"
+
+# Captions in Chinese and Japanese too (GNU Unifont's 16x16 CJK), as M5Stack's
+# firmware shows its AI's words in them.
+CONFIG_IMPO_CJK_FONT=y

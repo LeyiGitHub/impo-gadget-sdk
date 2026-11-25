@@ -140,8 +140,9 @@ mails"): a long turn leaves the gadget mute until it ends.
 A board does what only hardware can: play bytes, move a servo to an angle,
 light an LED, take a photo, read a sensor. Everything that needs understanding
 or composing is the cloud's: speech is made in the cloud and played with
-`speaker.play`, nods and dances are frames the agent writes for `head.play`,
-and a touch or a shake is only an event, with no reaction of the board's own.
+`speaker.play`, and a touch or a shake is only an event, with no reaction of
+the board's own. A device built on its maker's firmware (the StackChan) offers
+what that firmware gives its own AI, done the same way, and nothing else.
 
 A command answers when its work is done, with what happened: a sound once it
 has played (or was stopped, or failed), a head once it has settled, with the
@@ -301,35 +302,22 @@ wired so far, so it registers `chassis.drive`, `move`, `stop` and `status`.
 
 | Command | Who has it | Parameters | Result payload |
 |---|---|---|---|
-| `head.move` | `head` | `yaw`? −120..120°, `pitch`? 0..85°, `speed`? 100–1000 (150) | `{"yaw", "pitch", "servos_revived"?}` measured |
-| `head.play` | `head` | `frames`: 1–40 of `{yaw?, pitch?, ms 80–3000, speed? (700)}`, 20 s in all | `{"duration_ms", "reached": [{yaw, pitch} or null], "rest": {yaw, pitch}, "servos_revived"?}` |
-| `head.stop` | `head` | — | — |
-| `head.status` | `head` | — | `{"yaw", "pitch", "moving", "holding"}` measured |
+| `head.move` | `head` | `yaw`? −128..128 (−128 its left), `pitch`? 0..90 (90 up), `speed`? 100–1000 (150) | — |
+| `head.status` | `head` | — | `{"yaw", "pitch"}` whole degrees |
 
-`head.move` answers once the head has settled, with the angles the servos
-measured: `not_reached` when it stopped more than 5° short. `head.play` sends
-the head to each frame in turn (nods, shakes and dances are frames the agent
-composes) and answers once it rests: `reached` is what each frame got to as it
-ended (null where the servos did not answer, common while moving), and
-`not_reached` when the rest is more than 5° off the last frames. A new move, or
-`head.stop`, ends the one under way, which answers `stopped`.
-
-On the M5Stack StackChan both servos sometimes stop answering at once during
-pitch moves, while the PY32 still holds their power on. A move then switches
-their power off and on (about 2 s), moves again once and says
-`servos_revived`; `servos_silent` when they stay silent. A reading counts only
-when no servo reply came back short meanwhile: the vendor code otherwise
-answers with its own animation's value. Yaw 0 and pitch 0 look straight ahead.
+The M5Stack StackChan's head, as M5Stack's StackChan firmware gives it to its
+AI (`self.robot.set_head_angles`, `self.robot.get_head_angles`):
+`head.move` sends the head on its way and answers at once, and `head.status`
+reads where it is. Yaw 0 and pitch 0 look straight ahead.
 
 ### `lights.*` — lights in one colour
 
 | Command | Who has it | Parameters | Result payload |
 |---|---|---|---|
-| `lights.set` | `lights` | `color` (red, orange, yellow, green, cyan, blue, purple, pink, white, warm, off or `#rrggbb`), `brightness`? 1–100 (40) | — |
-| `lights.off` | `lights` | — | — |
+| `lights.set` | `lights` | `red`, `green`, `blue`? 0–168 (0); 0,0,0 is off | — |
 
-The StackChan's 12 LEDs in its body. They stay until changed; a head touch
-glows them pink for a moment and then shows them again.
+The StackChan's LEDs on its left and right, as M5Stack's
+`self.robot.set_led_color` sets them. They stay until changed.
 
 ### `sensors.*` — the surroundings
 

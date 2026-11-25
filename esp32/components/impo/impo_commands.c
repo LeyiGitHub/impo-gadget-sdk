@@ -452,10 +452,14 @@ void impo_commands_capabilities(cJSON *params)
 void impo_commands_describe(cJSON *commands)
 {
     for (size_t i = 0; i < sizeof(COMMON) / sizeof(COMMON[0]); i++) {
-        describe(commands, COMMON[i].name, 0);
+        if (impo_board_offers(COMMON[i].name)) {
+            describe(commands, COMMON[i].name, 0);
+        }
     }
     for (size_t i = 0; i < sizeof(COMMON_LATER) / sizeof(COMMON_LATER[0]); i++) {
-        describe(commands, COMMON_LATER[i].name, COMMON_LATER[i].timeout_ms);
+        if (impo_board_offers(COMMON_LATER[i].name)) {
+            describe(commands, COMMON_LATER[i].name, COMMON_LATER[i].timeout_ms);
+        }
     }
     for (int i = 0; impo_board && i < impo_board->command_count; i++) {
         describe(commands, impo_board->commands[i].name, 0);
@@ -517,13 +521,15 @@ static cJSON *run_later(const impo_later_command_t *command, const cJSON *params
 
 cJSON *impo_commands_run(const char *name, const cJSON *params, impo_reply_t *reply)
 {
+    /* A board's own command of the same name as a shared one it does not
+     * offer is the board's (the StackChan's speaker.set_volume). */
     for (size_t i = 0; i < sizeof(COMMON) / sizeof(COMMON[0]); i++) {
-        if (!strcmp(name, COMMON[i].name)) {
+        if (!strcmp(name, COMMON[i].name) && impo_board_offers(name)) {
             return wrap(COMMON[i].run(params));
         }
     }
     for (size_t i = 0; i < sizeof(COMMON_LATER) / sizeof(COMMON_LATER[0]); i++) {
-        if (!strcmp(name, COMMON_LATER[i].name)) {
+        if (!strcmp(name, COMMON_LATER[i].name) && impo_board_offers(name)) {
             return run_later(&COMMON_LATER[i], params, reply);
         }
     }

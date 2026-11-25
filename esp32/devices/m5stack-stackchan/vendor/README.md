@@ -16,15 +16,5 @@ definitions of them. The libraries it is built on, smooth_ui_toolkit and
 mooncake_log, come through the component manager at the versions M5Stack pins
 (`../idf_component.yml`).
 
-One file is built from a copy instead: `../port/SCSerial.cpp` is M5Stack's
-`m5stack/hal/drivers/FTServo_Arduino/src/SCSerial.cpp` with its two `readSCS`
-functions replaced. M5Stack's read one byte per pass with a 1 ms delay after
-each, so a servo reply cost about 1 ms per byte: a write's acknowledgement took
-about 6 ms, a read about 9 ms, and M5Stack's 20 ms motion step took 15 to 30 ms
-on the owner's unit (2026-11-20), which slowed and shrank every move (a nod
-reached half its angle). The copy reads what has arrived in one call, with the
-same timeouts. When a newer M5Stack release replaces these files, compare its
-`SCSerial.cpp` and drop the copy if the fix is there.
-
-The face code in `m5stack/stackchan/avatar/` is not built: Impo draws its own
-face. `stackchan.cpp` gives M5Stack's robot a face without pixels instead.
+The face code in `m5stack/stackchan/avatar/` is not built yet: Impo draws its
+own face.

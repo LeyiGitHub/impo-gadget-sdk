@@ -117,10 +117,20 @@ typedef struct {
      * itself"); link.register sends it as written. NULL: the gadget describes
      * nothing, and the agent sees only its command names. */
     const char *description;
+    /* The commands from outside the board's own lists (Impo's shared ones,
+     * Link's display and camera commands) that the device offers, comma
+     * separated; NULL offers all of them. A device that offers only what its
+     * maker's firmware does lists them here. */
+    const char *shared_commands;
 } impo_board_t;
 
 /* The running board, set by impo_app_run(). */
 extern const impo_board_t *impo_board;
+
+/* Whether a shared_commands list offers `name`; a NULL list offers all. */
+bool impo_board_lists(const char *shared_commands, const char *name);
+/* The same for the running board. */
+bool impo_board_offers(const char *name);
 
 /* Starts everything and returns; Home Link's app_main() calls it. */
 void impo_app_run(const impo_board_t *board);

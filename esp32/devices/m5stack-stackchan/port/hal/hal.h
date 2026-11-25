@@ -53,9 +53,6 @@ public:
 
     /* ---------------------------------- Servo --------------------------------- */
     void setServoPowerEnabled(bool enabled);
-    /* Brings back servos that stopped answering (hal_impo.cpp). */
-    void reviveServos();
-    bool servoPowerLatched();
 
     /* ----------------------------------- IMU ---------------------------------- */
     uitk::Signal<ImuMotionEvent> onImuMotionEvent;

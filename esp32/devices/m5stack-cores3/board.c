@@ -86,9 +86,13 @@ static esp_err_t init(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "camera unavailable (%s)", esp_err_to_name(err));
     }
-    err = m5stack_cores3_imu_start(bsp_i2c_get_handle());
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "motion sensor unavailable (%s)", esp_err_to_name(err));
+    /* The motion sensor (imu.read, the shaken event) only for a device that
+     * offers it (impo_board_t.shared_commands). */
+    if (impo_board_offers("imu.read")) {
+        err = m5stack_cores3_imu_start(bsp_i2c_get_handle());
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "motion sensor unavailable (%s)", esp_err_to_name(err));
+        }
     }
 #if CONFIG_M5STACK_CORES3_BODY
     body_start();
@@ -221,10 +225,16 @@ const impo_board_t *impo_board_get(void)
 {
     static impo_command_t commands[sizeof(s_commands) / sizeof(s_commands[0]) + 16];
     int n = 0;
-    for (size_t i = 0; i < sizeof(s_commands) / sizeof(s_commands[0]); i++) {
+    bool imu = true;
+#if CONFIG_M5STACK_CORES3_BODY
+    /* A body may leave out the CoreS3's own commands (shared_commands). */
+    s_board.shared_commands = m5stack_cores3_body.shared_commands;
+    imu = impo_board_lists(s_board.shared_commands, "imu.read");
+#endif
+    for (size_t i = 0; imu && i < sizeof(s_commands) / sizeof(s_commands[0]); i++) {
         commands[n++] = s_commands[i];
     }
-    s_board.features = FEATURES;
+    s_board.features = imu ? FEATURES : "";
 #if CONFIG_M5STACK_CORES3_BODY
     /* The body's commands after the CoreS3's own. */
     static char features[96];
@@ -232,7 +242,8 @@ const impo_board_t *impo_board_get(void)
     for (int i = 0; i < m5stack_cores3_body.command_count && n < (int)(sizeof(commands) / sizeof(commands[0])); i++) {
         commands[n++] = m5stack_cores3_body.commands[i];
     }
-    snprintf(features, sizeof(features), FEATURES ",%s", m5stack_cores3_body.features);
+    snprintf(features, sizeof(features), "%s%s%s", s_board.features, *s_board.features ? "," : "",
+             m5stack_cores3_body.features);
     s_board.features = features;
     s_board.later_commands = m5stack_cores3_body.later_commands;
     s_board.later_command_count = m5stack_cores3_body.later_command_count;

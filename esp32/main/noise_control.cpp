@@ -53,6 +53,7 @@ extern "C" {
 extern "C" {
 #include "impo_board.h"
 #include "impo_commands.h"
+#include "impo_settings.h"
 #include "impo_state.h"
 }
 // What the platform's own commands (device.health, device.discover) do, as JSON
@@ -1269,6 +1270,18 @@ static void identity_on_frame(identity_fetch &f, const DecodedServiceFrame &fram
 
 // ---- JSON message builders -------------------------------------------------
 
+// Whether the device offers one of Link's own device commands (display,
+// camera): a device can offer only what its maker's firmware does
+// (impo_board_t.shared_commands).
+[[maybe_unused]] static bool offered(const char *name) {
+#if CONFIG_IMPO_ENABLED
+    return impo_board_offers(name);
+#else
+    (void)name;
+    return true;
+#endif
+}
+
 // A command this firmware runs, by name only; returns its entry so a long
 // one can add its timeout_ms.
 static cJSON *add_command(cJSON *commands, const char *name) {
@@ -1396,9 +1409,13 @@ static char *build_register_json(const uint8_t *handshake_hash,
     if (led_status_display_info(&disp_w, &disp_h)) {
         // The six-colour e-paper may first finish a status screen refresh,
         // then takes as long again for the image.
-        cJSON_AddNumberToObject(add_command(commands, "display.draw_url"), "timeout_ms",
-                                led_status_display_bits() == 4 ? 120000 : 60000);
-        add_command(commands, "display.show_animation");
+        if (offered("display.draw_url")) {
+            cJSON_AddNumberToObject(add_command(commands, "display.draw_url"), "timeout_ms",
+                                    led_status_display_bits() == 4 ? 120000 : 60000);
+        }
+        if (offered("display.show_animation")) {
+            add_command(commands, "display.show_animation");
+        }
     }
 #endif
 
@@ -1411,7 +1428,7 @@ static char *build_register_json(const uint8_t *handshake_hash,
 #endif
 
 #if CONFIG_IMPO_CAMERA
-    if (impo_camera_name()) {
+    if (impo_camera_name() && offered("camera.capture")) {
         cJSON_AddNumberToObject(add_command(commands, "camera.capture"), "timeout_ms", 30000);
     }
 #endif
@@ -1564,6 +1581,13 @@ static void send_device_health(
     cJSON_AddItemToObject(metrics, "usb_power",
                           usb_power ? usb_power : cJSON_CreateNull());
     cJSON_AddItemToObject(health, "metrics", metrics);
+#if CONFIG_IMPO_ENABLED
+    // As xiaozhi's GetDeviceStatusJson reports them.
+    cJSON_AddNumberToObject(cJSON_AddObjectToObject(health, "audio_speaker"), "volume",
+                            impo_settings_volume());
+    cJSON_AddNumberToObject(cJSON_AddObjectToObject(health, "screen"), "brightness",
+                            impo_settings_brightness());
+#endif
     if (wifi_ssid[0]) {
         cJSON_AddStringToObject(health, "network_ssid", wifi_ssid);
     }

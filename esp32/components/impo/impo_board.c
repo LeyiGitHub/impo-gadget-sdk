@@ -16,12 +16,33 @@
 
 #include "impo_board.h"
 
+#include <string.h>
+
 #include "esp_check.h"
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "impo_board";
+
+bool impo_board_offers(const char *name)
+{
+    return impo_board_lists(impo_board ? impo_board->shared_commands : NULL, name);
+}
+
+bool impo_board_lists(const char *list, const char *name)
+{
+    if (!list) {
+        return true;
+    }
+    size_t len = strlen(name);
+    for (const char *at = list; (at = strstr(at, name)); at += len) {
+        if ((at == list || at[-1] == ',') && (at[len] == ',' || at[len] == '\0')) {
+            return true;
+        }
+    }
+    return false;
+}
 
 #define DEBOUNCE_SAMPLES 3
 #define DEBOUNCE_POLL_MS 10     /* the input task's awake poll */

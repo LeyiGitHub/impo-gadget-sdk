@@ -27,6 +27,8 @@ typedef struct {
     int later_command_count;
     const char *features;               /* impo_board_t.features */
     const char *description;            /* impo_board_t.description: the whole device's */
+    const char *shared_commands;        /* impo_board_t.shared_commands; the CoreS3's imu.read
+                                         * (and its motion sensor) only when listed */
 } m5stack_cores3_body_t;
 
 extern const m5stack_cores3_body_t m5stack_cores3_body;

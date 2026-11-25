@@ -259,11 +259,12 @@ base (`tools/impo/board.sh flash stackchan`). The body runs M5Stack's own
 unchanged: two Feetech SCS0009 servos on UART1 turn and tilt the head with
 spring easing and stall protection, a PY32 IO expander (I2C 0x6F) switches
 their power and drives the 12 RGB LEDs, and an Si12T (0x68) reads the touch
-strip on the head. Impo adds the commands (`head.move`, `head.play`,
-`head.stop`, `head.status`, `lights.set`, `lights.off`) and the `head_touched`
-and `shaken` events; the board does nothing of its own on a touch or a shake. Its `description.json`
-says what it is and what each command and event does (CAPABILITIES.md, A gadget
-describes itself). To go back to M5's firmware later,
+strip on the head. Its commands are the tools M5Stack's firmware gives its own
+AI, done the same way (`head.move`, `head.status`, `lights.set`,
+`speaker.set_volume`, `display.set_brightness`, with `camera.capture`,
+`display.show_text` and `speaker.play`); it sends no events. Its
+`description.json` says what it is and what each command does
+(CAPABILITIES.md, A gadget describes itself). To go back to M5's firmware later,
 back it up first: `python -m esptool --chip esp32s3 -p PORT read-flash 0
 0x1000000 stackchan.bin`.
 

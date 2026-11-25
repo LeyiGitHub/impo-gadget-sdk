@@ -19,8 +19,7 @@ NOISE = ESP32 / "main/noise_control.cpp"
 
 # The platform's commands, which Link registers itself (noise_control.cpp).
 PLATFORM = {"device.health", "device.discover"}
-# The device's commands Link registers for it, from what the board has
-# (camera.capture with its camera, the display commands with its screen).
+# Device commands Link registers for a board that offers them (noise_control.cpp).
 LINK_FOR_DEVICE = {"camera.capture", "display.draw_url", "display.show_animation"}
 
 # contracts/gadget-identity.md, "The manifest": the schema subset and its limits.
@@ -109,16 +108,24 @@ class StackChanDescriptionTest(unittest.TestCase):
         self.assertEqual({c["name"] for c in self.platform["commands"]}, PLATFORM)
         self.assertLessEqual(PLATFORM, registered)
 
-    def test_device_commands_are_the_ones_the_firmware_runs(self):
-        runs = set(table(COMMON, "COMMON") + table(COMMON, "COMMON_LATER") + table(CORES3 / "board.c", "s_commands")
-                   + table(STACKCHAN / "stackchan.cpp", "s_commands") + table(STACKCHAN / "stackchan.cpp", "s_later_commands"))
-        registered = set(re.findall(r'add_command\(commands, "([^"]+)"\)', NOISE.read_text()))
-        self.assertLessEqual(LINK_FOR_DEVICE, registered)
-        self.assertEqual({c["name"] for c in self.device["commands"]}, runs | LINK_FOR_DEVICE)
+    def shared(self):
+        """The body's shared_commands: what it offers of the commands outside its own table."""
+        m = re.search(r'"((?:[a-z_]+\.[a-z_]+,)*[a-z_]+\.[a-z_]+)",\s*\};', (STACKCHAN / "stackchan.cpp").read_text())
+        self.assertTrue(m, "the StackChan lists the shared commands it offers")
+        return m.group(1).split(",")
 
-    def test_events_are_the_ones_the_firmware_sends(self):
-        sent = re.findall(r'impo_link_send_event\("([a-z_]+)"', (CORES3 / "imu.cpp").read_text() + (STACKCHAN / "stackchan.cpp").read_text())
-        self.assertEqual({e["name"] for e in self.device["events"]}, set(sent))
+    def test_device_commands_are_the_ones_the_firmware_runs(self):
+        own = table(STACKCHAN / "stackchan.cpp", "s_commands")
+        elsewhere = set(table(COMMON, "COMMON") + table(COMMON, "COMMON_LATER") + table(CORES3 / "board.c", "s_commands")) | LINK_FOR_DEVICE
+        self.assertLessEqual(set(self.shared()), elsewhere)
+        self.assertEqual({c["name"] for c in self.device["commands"]}, set(own) | set(self.shared()))
+
+    def test_no_events(self):
+        """M5Stack's firmware tells its AI of no touch or shake: the StackChan sends no event, and
+        leaves out the CoreS3's motion sensor (imu.read, shaken)."""
+        self.assertEqual(self.device["events"], [])
+        self.assertNotIn("impo_link_send_event", (STACKCHAN / "stackchan.cpp").read_text())
+        self.assertNotIn("imu.read", self.shared())
 
     def test_nothing_names_a_product(self):
         self.assertNotIn("PRODUCT_ID", (STACKCHAN / "sdkconfig").read_text())

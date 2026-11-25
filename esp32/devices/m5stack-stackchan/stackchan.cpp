@@ -696,6 +696,10 @@ const impo_later_command_t s_later_commands[] = {
 
 }  // namespace
 
+// What the StackChan is and what every command and event of it does
+// (description.json, embedded as written by CMakeLists.txt).
+extern const char description_json[] asm("_binary_description_json_start");
+
 const m5stack_cores3_body_t m5stack_cores3_body = {
     "M5Stack StackChan",
     start,
@@ -704,4 +708,5 @@ const m5stack_cores3_body_t m5stack_cores3_body = {
     s_later_commands,
     sizeof(s_later_commands) / sizeof(s_later_commands[0]),
     "head,head_touch,lights",
+    description_json,
 };

@@ -92,7 +92,7 @@ ever on a gadget.
 | BLE GATT (`ImpoGadget-…`) | app ↔ gadget | setup: Wi-Fi, the pairing record, `wifi.*` and `hatch.*` commands; the USB console speaks the same `key=value` lines after `>` |
 | Gateway HTTP | gadget → gateway | `GET /fetch_vms`, `POST /device_token/refresh`, `GET /v1/noise` (WebSocket) |
 | Noise session streams | gadget ↔ gateway | `POST /link-control` (control messages), `GET /identity`, `POST /chat/stream` (a message from the gadget), `POST /chat/subscribe` (replies, NDJSON events), `POST /tts` (speech), `/api/voice/dictation` (push-to-talk audio up) |
-| Control messages | gadget ↔ gateway | `link.register {node_id, display_name, platform, version, commands_v2, capabilities, unit_id?, attest?, product_id?}` (`unit_id` and `attest` only from official units, `product_id` only from custom gadgets that name a product), `link.invoke {id, command, params}` → `link.result {id, ok, payload, error}`, `link.event {event, data, uptime_ms}`, `link.unpaired`, heartbeats |
+| Control messages | gadget ↔ gateway | `link.register {node_id, display_name, platform, version, commands_v2, capabilities, description?, unit_id?, attest?}` (`unit_id` and `attest` only from official units, `description` from a gadget that describes itself), `link.invoke {id, command, params}` → `link.result {id, ok, payload, error}`, `link.event {event, data, uptime_ms}`, `link.unpaired`, heartbeats |
 | Gateway admin HTTP | API → gateway | `GET /admin/vms/:vm` (pairings, devices, live sockets, chat, events, hub version), `POST .../pairings`, `DELETE .../pairings/:id`, `POST .../invoke`, `POST .../replies` |
 | Impo API | app, gateway → API | `/api/v1/gadgets[...]`, `/api/v1/conversation/*`, `/api/v1/voice/transcriptions`, `/api/v1/voice/speech`, `/api/v1/files/...` |
 | Agent tools | agent → API | `impo_list_gadgets`, `impo_gadget_command` |
@@ -243,22 +243,21 @@ Settled, so that nothing below has to be argued twice.
 6. **Things that move need a person's say-so.** Nothing automated drives
    the base or anything else that moves unless the person asked for that
    behaviour explicitly (the `physical` grant in `docs/GADGET-AGENTS.md`).
-7. **A gadget says who it is and what it executes; the platform says the
-   rest; the agent decides.** The firmware's `link.register` carries its
-   identity and its execution contract, nothing more. Its identity is a
-   proof from an official unit (`unit_id` and `attest`, a per-unit eFuse key
-   over the session's handshake hash) or, from a custom gadget, a
-   `product_id` that binds on whichever account the gadget is paired to.
-   Its execution contract is the commands it runs (`commands_v2`: their
-   names only). Everything said to the agent about
-   it lives on the Impo platform as the product's structured manifest: a
-   system prompt, the commands the agent may use with a description and a
-   parameter schema each, and the events with their meanings. Makers fill
-   it in on the developer platform, so it changes without a firmware
-   update, and the gateway checks it against the commands the firmware
-   registers. A gadget bound to no product connects and runs its commands,
-   but the agent gets no instructions or event meanings for it. The
-   contract is `contracts/gadget-identity.md` in impoai/impo. A manifest
+7. **A gadget says what it is and what it executes; the agent decides.**
+   The firmware's `link.register` carries the commands it runs
+   (`commands_v2`) and its description in two layers: the platform's
+   (`esp32/main/platform.json`: chip-level, the same on every ESP32 gadget)
+   and the device's (`devices/<device>/description.json`: what its hardware
+   is and does, every command with a description and parameter and result
+   schemas, every event with its meaning). The gateway checks the
+   description against the commands the firmware runs and the Impo platform
+   checks its format; the agent and the Impo app read exactly that. Nothing
+   in the firmware names an account or a product: the account comes from
+   pairing. An official unit instead proves which product it is (`unit_id`
+   and `attest`, a per-unit eFuse key over the session's handshake hash) and
+   reads that product's manifest. A gadget that does neither connects and
+   runs its commands, but the agent sees only their names. The contract is
+   `contracts/gadget-identity.md` in impoai/impo. A manifest
    can ask for anything ("when shaken, read the newest mail"), because the
    gadget has no access of its own: the agent carries it out with the
    person's connections, under the person's wishes and the platform's

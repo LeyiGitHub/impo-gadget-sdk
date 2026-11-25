@@ -66,18 +66,6 @@ else()
     endif()
 endif()
 
-# A custom gadget's product ID, as the Impo developer platform issues it.
-# Empty sends none.
-# CMake regular expressions have no {n}, so the UUID pattern is spelled out.
-string(REPEAT "[0-9a-f]" 4 GADGET_HEX4)
-set(GADGET_UUID_PATTERN "^${GADGET_HEX4}${GADGET_HEX4}-${GADGET_HEX4}-${GADGET_HEX4}-${GADGET_HEX4}-${GADGET_HEX4}${GADGET_HEX4}${GADGET_HEX4}$")
-if(NOT "${CONFIG_GADGET_PRODUCT_ID}" STREQUAL "" AND
-   NOT "${CONFIG_GADGET_PRODUCT_ID}" MATCHES "${GADGET_UUID_PATTERN}")
-    message(FATAL_ERROR
-        "CONFIG_GADGET_PRODUCT_ID \"${CONFIG_GADGET_PRODUCT_ID}\" is not a product ID: "
-        "a lowercase UUID. Copy it from the product on the Impo developer platform.")
-endif()
-
 # Manufacturer attestation must remain inaccessible to unsigned firmware.
 # Community pairing is independent of logging, OTA signing, and board selection.
 if(CONFIG_HOMEHUB_PAIRING_EFUSE_AUTH)

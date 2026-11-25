@@ -70,6 +70,12 @@ if [ -n "${IMPO_BENCH:-}" ]; then
 fi
 log=/tmp/impo_build_$board.log
 if [ "$cmd" = build ]; then
+    # A device that describes itself (devices/<device>/description.json) builds
+    # only when its description is one the Impo platform accepts and matches
+    # what the firmware runs: tests/test_<device>.py checks both.
+    if [ -f devices/$profile/description.json ]; then
+        python3 -m unittest -q "tests.test_$(echo $profile | tr - _)" || { echo "devices/$profile/description.json does not match the firmware" >&2; exit 1; }
+    fi
     # Boards share managed_components/ with each other and with the Link build,
     # so build one at a time. Each resolves a different dependency set, and the
     # component manager fails partway through pruning the last one's (lvgl), so

@@ -112,6 +112,11 @@ typedef struct {
     /* What else the board has, for the capabilities it registers (CAPABILITIES.md):
      * a comma-separated list such as "motion_sensor,locomotion,lights", or NULL. */
     const char *features;
+    /* What the device is and what each of its commands and events does, as JSON
+     * text (devices/<device>/description.json, CAPABILITIES.md "A gadget describes
+     * itself"); link.register sends it as written. NULL: the gadget describes
+     * nothing, and the agent sees only its command names. */
+    const char *description;
 } impo_board_t;
 
 /* The running board, set by impo_app_run(). */

@@ -163,6 +163,9 @@ int main(void) {
 #include "esp_app_desc.h"
 #define nullptr NULL
 #define CONFIG_HOMEHUB_TUNNEL 1
+#define MALLOC_CAP_SPIRAM 1
+#define MALLOC_CAP_8BIT 2
+static void *heap_caps_malloc_prefer(size_t size, size_t count, ...) { (void)count; return malloc(size); }
 static bool enabled;
 bool ota_is_enabled(void) { return enabled; }
 static esp_app_desc_t app = { .version = "999.0.0" };
@@ -177,7 +180,6 @@ static bool gadget_attest_add(cJSON *params, const uint8_t *hash, size_t len) {
     cJSON_AddStringToObject(params, "attest", "seen");
     return true;
 }
-#define CONFIG_GADGET_PRODUCT_ID "6f1c2b9e-4a7d-4e2b-9c1a-3d5e7f9a1b2c"
 ''' + functions + '''
 int main(void) {
     for (int on = 0; on <= 1; on++) {
@@ -200,16 +202,79 @@ int main(void) {
                 self.assertIn("device.health", commands)
                 self.assertIn("device.discover", commands)
                 self.assertEqual("device.ota" in commands, enabled)
-                # Names only: the product's manifest describes the commands.
+                # Names only: a board without a description describes nothing.
                 self.assertEqual(commands["device.health"], {})
                 self.assertEqual(commands["device.discover"], {"timeout_ms": 90000})
                 self.assertEqual(params["version"], "999.0.0")
                 # The session's handshake hash reaches attestation unchanged.
                 self.assertEqual(params.get("attest"), "seen" if enabled else None)
-                # Only a unit that did not attest names a product.
-                self.assertEqual(params.get("product_id"), None if enabled else "6f1c2b9e-4a7d-4e2b-9c1a-3d5e7f9a1b2c")
-                for field in ("instructions", "events"):
+                # The firmware names no product and no account.
+                self.assertNotIn("product_id", params)
+                for field in ("instructions", "events", "description"):
                     self.assertNotIn(field, params)
+
+
+    def test_registration_carries_the_description_as_written(self) -> None:
+        # A board with a description (devices/<device>/description.json) sends it with
+        # the platform's (main/platform.json), each as written, in link.register.
+        noise = (ROOT / "main/noise_control.cpp").read_text()
+        functions = "\n".join(function_source(noise, signature) for signature in (
+            "static cJSON *add_command(",
+            "static cJSON *raw_reference(",
+            "static void add_register_metadata_string(",
+            "static char *build_register_json(",
+        ))
+        platform = (ROOT / "main/platform.json").read_text()
+        device = (ROOT / "devices/m5stack-stackchan/description.json").read_text()
+        literal = lambda text: json.dumps(text)
+        with tempfile.TemporaryDirectory() as name:
+            tmp = Path(name)
+            source = tmp / "registration.c"
+            source.write_text('''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "cJSON.h"
+#include "esp_app_desc.h"
+#define nullptr NULL
+#define CONFIG_IMPO_ENABLED 1
+#define MALLOC_CAP_SPIRAM 1
+#define MALLOC_CAP_8BIT 2
+static size_t largest;
+static void *heap_caps_malloc_prefer(size_t size, size_t count, ...) { (void)count; if (size > largest) largest = size; return malloc(size); }
+bool ota_is_enabled(void) { return false; }
+static esp_app_desc_t app = { .version = "1.0.0" };
+const esp_app_desc_t *esp_app_get_description(void) { return &app; }
+static char s_wifi_ssid[33] = "test-wifi", s_register_req_id[40];
+static const char *s_node_id = "test-node", *s_display_name = "Test device";
+static void copy_wifi_ssid(char *out, size_t size) { snprintf(out, size, "%s", s_wifi_ssid); }
+static void make_uuid(char *out, size_t size) { snprintf(out, size, "test-request"); }
+static bool gadget_attest_add(cJSON *params, const uint8_t *hash, size_t len) { (void)params; (void)hash; (void)len; return false; }
+static void impo_commands_capabilities(cJSON *params) { (void)params; }
+static void impo_commands_describe(cJSON *commands) { cJSON_AddItemToObject(commands, "head.stop", cJSON_CreateObject()); }
+typedef struct { const char *description; } impo_board_t;
+static const impo_board_t board = { ''' + literal(device) + ''' };
+static const impo_board_t *impo_board = &board;
+static const char platform_json[] = ''' + literal(platform) + ''';
+''' + functions + '''
+int main(void) {
+    char *json = build_register_json(NULL, 0);
+    assert(json);
+    puts(json);
+    free(json);
+    fprintf(stderr, "%zu\\n", largest);
+    return 0;
+}
+''')
+            output = self.compile_and_run([source, ROOT / "tests/link_fakes/cJSON.c"], tmp)
+            params = json.loads(output)["params"]
+            self.assertEqual(params["description"], {"platform": json.loads(platform), "device": json.loads(device)})
+            self.assertNotIn("product_id", params)
+            self.assertNotIn("device.set_name", params["commands_v2"])
+            self.assertEqual(params["commands_v2"]["head.stop"], {})
 
 
 if __name__ == "__main__":

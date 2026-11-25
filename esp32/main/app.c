@@ -1740,7 +1740,7 @@ static const char *ws_control_action_name(ws_control_action_t action) {
         case WS_CONTROL_SET_VM: return "device.set_vm";
         case WS_CONTROL_RESET_VM: return "device.reset_vm";
         case WS_CONTROL_UNPAIR: return "device.unpair";
-        case WS_CONTROL_RECONNECT: return "device.set_name";
+        case WS_CONTROL_RECONNECT: return "reconnect";
         default: return "unknown";
     }
 }
@@ -2186,15 +2186,6 @@ static cJSON *on_ws_command(
 #endif
     if (strcmp(command, "device.reset_vm") == 0) {
         return queue_ws_control(WS_CONTROL_RESET_VM, NULL);
-    }
-    if (strcmp(command, "device.set_name") == 0) {
-        cJSON *name = cJSON_GetObjectItem(params, "name");
-        if (!cJSON_IsString(name) || !identity_set_display_name(name->valuestring)) {
-            return command_error("invalid_param", "name must be 1 to 32 printable characters");
-        }
-        noise_ctrl_set_display_name(identity_display_name());
-        ESP_LOGI(TAG, "renamed to \"%s\"", identity_display_name());
-        return queue_ws_control(WS_CONTROL_RECONNECT, NULL);
     }
     if (strcmp(command, "device.unpair") == 0) {
         return queue_ws_control(WS_CONTROL_UNPAIR, NULL);

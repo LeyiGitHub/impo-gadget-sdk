@@ -51,9 +51,13 @@ extern "C" {
 #include "ota.h"
 #if CONFIG_IMPO_ENABLED
 extern "C" {
+#include "impo_board.h"
 #include "impo_commands.h"
 #include "impo_state.h"
 }
+// What the platform's own commands (device.health, device.discover) do, as JSON
+// text: platform.json, embedded as written by CMakeLists.txt.
+extern const char platform_json[] asm("_binary_platform_json_start");
 #endif
 #if CONFIG_IMPO_CAMERA
 extern "C" {
@@ -1273,6 +1277,19 @@ static cJSON *add_command(cJSON *commands, const char *name) {
     return entry;
 }
 
+#if CONFIG_IMPO_ENABLED
+// JSON text printed as written: the node points at `text`, which outlives it,
+// so a 13 KB description is neither copied nor parsed on the way out.
+static cJSON *raw_reference(const char *text) {
+    cJSON *item = cJSON_CreateNull();
+    if (item) {
+        item->type = cJSON_Raw | cJSON_IsReference;
+        item->valuestring = (char *)text;
+    }
+    return item;
+}
+#endif
+
 static void add_register_metadata_string(cJSON **metadata, cJSON *params,
                                          const char *key,
                                          const char *value) {
@@ -1325,14 +1342,22 @@ static char *build_register_json(const uint8_t *handshake_hash,
     cJSON_AddBoolToObject(params, "is_wakeup_supported", false);
     cJSON *metadata = nullptr;
     add_register_metadata_string(&metadata, params, "network_ssid", wifi_ssid);
-    // Who this gadget is (contracts/gadget-identity.md in impoai/impo): an
-    // official unit proves it; any other may name its owner's product.
-    bool attested = gadget_attest_add(params, handshake_hash, handshake_hash_len);
-    if (!attested && strlen(CONFIG_GADGET_PRODUCT_ID) > 0) {
-        cJSON_AddStringToObject(params, "product_id", CONFIG_GADGET_PRODUCT_ID);
-    }
+    // An official unit proves who it is (contracts/gadget-identity.md in
+    // impoai/impo). Nothing else in the firmware names an account or a product.
+    gadget_attest_add(params, handshake_hash, handshake_hash_len);
+    size_t described = 0;
 #if CONFIG_IMPO_ENABLED
     impo_commands_capabilities(params);   // what this gadget has, see CAPABILITIES.md
+    // What it is and what each command and event does, in two layers: the
+    // platform's (platform.json) and the device's (devices/<device>/description.json).
+    // The gateway checks it and the agent and the Impo app read exactly this.
+    if (impo_board && impo_board->description) {
+        cJSON *description = cJSON_CreateObject();
+        cJSON_AddItemToObject(params, "description", description);
+        cJSON_AddItemToObject(description, "platform", raw_reference(platform_json));
+        cJSON_AddItemToObject(description, "device", raw_reference(impo_board->description));
+        described = strlen(platform_json) + strlen(impo_board->description);
+    }
 #endif
 #if CONFIG_HOMEHUB_LED_BACKEND_FREENOVE_4WD_CAR
     freenove_car_capabilities(params);
@@ -1345,12 +1370,10 @@ static char *build_register_json(const uint8_t *handshake_hash,
     cJSON_ReplaceItemInObject(params, "model_id", cJSON_CreateString("xteink-x4"));
 #endif
 
-    // The commands this firmware runs, by name. What each does and its
-    // parameters are in the product's manifest on the Impo platform
-    // (contracts/gadget-identity.md in impoai/impo), and the handlers check
+    // The commands this firmware runs, by name, with how long the slow ones
+    // take. What each does is in the description above, and the handlers check
     // their own parameters.
     cJSON *commands = cJSON_CreateObject();
-    add_command(commands, "device.set_name");
     add_command(commands, "device.health");
 #if CONFIG_HOMEHUB_TUNNEL
     cJSON_AddNumberToObject(add_command(commands, "device.discover"), "timeout_ms", 90000);
@@ -1403,12 +1426,13 @@ static char *build_register_json(const uint8_t *handshake_hash,
     // cJSON_PrintUnformatted grows its buffer by doubling, holding the old
     // one each time, so ~2 KB of JSON briefly needs ~6 KB of byte-addressable
     // heap. Right after the handshake there is often not that much, so print
-    // into one buffer sized to fit instead.
+    // into one buffer sized to fit instead, in PSRAM when there is some: with
+    // a description it is over 15 KB.
     char *json = nullptr;
-    for (int size = 2048; size <= 8192 && !json; size += 512) {
-        json = (char *)malloc(size);
+    for (size_t size = 2048 + described; size <= 8192 + described && !json; size += 512) {
+        json = (char *)heap_caps_malloc_prefer(size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
         if (!json) break;
-        if (!cJSON_PrintPreallocated(root, json, size, false)) {
+        if (!cJSON_PrintPreallocated(root, json, (int)size, false)) {
             free(json);
             json = nullptr;
         }

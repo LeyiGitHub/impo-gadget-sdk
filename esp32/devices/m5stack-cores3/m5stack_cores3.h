@@ -26,6 +26,7 @@ typedef struct {
     const impo_later_command_t *later_commands;
     int later_command_count;
     const char *features;               /* impo_board_t.features */
+    const char *description;            /* impo_board_t.description: the whole device's */
 } m5stack_cores3_body_t;
 
 extern const m5stack_cores3_body_t m5stack_cores3_body;

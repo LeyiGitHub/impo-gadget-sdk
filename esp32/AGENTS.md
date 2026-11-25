@@ -463,9 +463,9 @@ which must use the same name. (`device.health` and `device.ota` are handled in
 
 1. **Name it** in `build_register_json()` in `main/noise_control.cpp`:
    `add_command(commands, "relay.set")`. The firmware sends the name only.
-   What the command does, its parameters and its result go in the product's
-   manifest on the Impo developer platform (`contracts/gadget-identity.md` in
-   impoai/impo), as `tools/freenove_4wd_car_manifest.py` builds the car's. If
+   What the command does, its parameters and its result go in the device's
+   `devices/<device>/description.json` (CAPABILITIES.md, A gadget describes
+   itself), or `main/platform.json` for a command every ESP32 gadget runs. If
    it can take longer than the default 30 seconds, set its `timeout_ms` on
    the entry `add_command()` returns, as `device.discover` does.
 2. **Handle it** in `on_ws_command()` in `main/app.c`. Return

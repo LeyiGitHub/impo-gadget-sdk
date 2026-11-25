@@ -236,6 +236,7 @@ const impo_board_t *impo_board_get(void)
     s_board.features = features;
     s_board.later_commands = m5stack_cores3_body.later_commands;
     s_board.later_command_count = m5stack_cores3_body.later_command_count;
+    s_board.description = m5stack_cores3_body.description;
 #endif
     s_board.commands = commands;
     s_board.command_count = n;

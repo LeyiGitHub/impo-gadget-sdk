@@ -116,7 +116,7 @@ void impo_link_reset_setup(void);
  */
 bool impo_link_send_event(const char *event, cJSON *data);
 
-/* Renames the gadget ("name=" over BLE or the console, device.set_name from the agent). */
+/* Renames the gadget ("name=" over BLE or the console). */
 bool impo_link_set_display_name(const char *name);
 /* The first saved network, owned by Link. Return false when Link hasn't registered. */
 bool impo_link_wifi_get(char *ssid, char *pass);

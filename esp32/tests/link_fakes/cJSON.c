@@ -330,7 +330,7 @@ void cJSON_Delete(cJSON *item) {
     while (item) {
         cJSON *next = item->next;
         cJSON_Delete(item->child);
-        free(item->valuestring);
+        if (!(item->type & cJSON_IsReference)) free(item->valuestring);
         free(item->string);
         free(item);
         item = next;
@@ -339,6 +339,10 @@ void cJSON_Delete(cJSON *item) {
 
 cJSON *cJSON_CreateObject(void) {
     return new_item(cJSON_Object);
+}
+
+cJSON *cJSON_CreateNull(void) {
+    return new_item(cJSON_NULL);
 }
 
 cJSON *cJSON_CreateBool(int boolean) {
@@ -395,6 +399,7 @@ cJSON *cJSON_AddNumberToObject(cJSON *object, const char *name, double number) {
 }
 
 static bool print_value(out_t *out, const cJSON *item) {
+    if (item && (item->type & ~cJSON_IsReference) == cJSON_Raw) return append_str(out, item->valuestring);
     if (cJSON_IsString(item)) {
         return append_escaped_string(out, item->valuestring);
     }

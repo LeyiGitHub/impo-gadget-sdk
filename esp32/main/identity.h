@@ -25,8 +25,8 @@
 void identity_init(void);
 const char *identity_node_id(void);
 const char *identity_ble_name(void);
-// What the gadget is called: the name the person gave it (device.set_name,
-// "name=" over BLE or the console), else the BLE name.
+// What the gadget is called: the name the person gave it ("name=" over BLE or
+// the console), else the BLE name.
 const char *identity_display_name(void);
 // 1 to 32 bytes of printable UTF-8, kept in NVS. False if it can't be kept.
 bool identity_set_display_name(const char *name);

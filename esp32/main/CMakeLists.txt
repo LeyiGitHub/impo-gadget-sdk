@@ -119,6 +119,7 @@ endif()
 
 idf_component_register(
     SRCS ${GADGET_SRCS}
+    EMBED_TXTFILES "platform.json"   # what the platform's own commands do, sent in link.register
     INCLUDE_DIRS "."
     PRIV_INCLUDE_DIRS "../avatar"
     REQUIRES ${GADGET_REQUIRES}

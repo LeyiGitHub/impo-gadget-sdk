@@ -37,6 +37,8 @@ enum {
     cJSON_Array = 32,
     cJSON_Object = 64,
     cJSON_Number = 128,
+    cJSON_IsReference = 256,   // valuestring is borrowed: Delete leaves it
+    cJSON_Raw = 512,           // valuestring is JSON text, printed as written
 };
 
 #define cJSON_ArrayForEach(element, array) \
@@ -53,6 +55,7 @@ cJSON *cJSON_AddStringToObject(cJSON *object, const char *name, const char *stri
 cJSON *cJSON_AddBoolToObject(cJSON *object, const char *name, int boolean);
 cJSON *cJSON_AddNumberToObject(cJSON *object, const char *name, double number);
 char *cJSON_PrintUnformatted(const cJSON *item);
+cJSON *cJSON_CreateNull(void);
 int cJSON_PrintPreallocated(cJSON *item, char *buffer, const int length, const int format);
 void cJSON_free(void *object);
 

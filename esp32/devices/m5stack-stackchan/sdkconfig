@@ -6,6 +6,3 @@
 # whose code is in vendor/m5stack.
 # Advertise as ImpoGadget-StackChan-XXXXXX, so it is easy to pick in the Impo app.
 CONFIG_HOMEHUB_BLE_NAME_SUFFIX="-StackChan"
-# The product on the Impo developer platform (manifest.py makes its manifest):
-# the agent gets that manifest when the StackChan is paired.
-CONFIG_GADGET_PRODUCT_ID="2260c47f-188d-4841-837c-bd2373a5ee58"

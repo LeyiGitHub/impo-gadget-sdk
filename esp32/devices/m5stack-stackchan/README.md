@@ -14,7 +14,7 @@ Impo's build replaces M5Stack's firmware. Back that up first
 | `vendor/m5stack/` | M5Stack's StackChan code, unchanged: servo, IO expander and touch drivers, and the robot (motion with spring easing and stall protection, LEDs, keyframe animations, dances) |
 | `port/` | what that code expects from the rest of M5Stack's firmware |
 | `stackchan.cpp` | Impo on top: the body's commands and its touch event |
-| `manifest.py` | the product manifest the agent reads; `impo.py manifest push` sends it |
+| `description.json` | what the StackChan is and what each command and event does; the firmware sends it as written, and `tests/test_m5stack_stackchan.py` checks it against the code |
 
 ## Commands and events
 

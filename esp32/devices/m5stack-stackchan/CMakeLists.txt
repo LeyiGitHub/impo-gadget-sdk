@@ -23,6 +23,7 @@ idf_component_register(
          "vendor/xiaozhi/settings.cc"
     INCLUDE_DIRS "."
     PRIV_INCLUDE_DIRS "port" "port/hal" "${m5}" "vendor/xiaozhi"
+    EMBED_TXTFILES "description.json"   # what the StackChan is and does, sent in link.register
     REQUIRES m5stack-cores3
     PRIV_REQUIRES impo nvs_flash esp_driver_uart esp_driver_i2c esp_timer
     WHOLE_ARCHIVE   # m5stack_cores3_body and M5Stack's static objects

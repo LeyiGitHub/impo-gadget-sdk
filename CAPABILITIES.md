@@ -44,14 +44,12 @@ developer platform, not the firmware. The contract is
 `link.register` carries:
 
 - `commands_v2`: every command the gadget runs, by name only: `{"<name>": {}}`,
-  plus `timeout_ms` on a command that can take longer than 30 seconds. Its
-  description and parameter schema are in the manifest. The gateway checks a
-  bound gadget's manifest against these names: a manifest command the
-  firmware does not register makes the gadget not set up. A gadget that is
-  not set up is offered only these names. A result is
+  plus `timeout_ms` on a command that can take longer than 30 seconds. What
+  each does is in `description` (below). A result is
   `{"ok": true, "payload": {...}}` or `{"ok": false, "error": "..."}`.
-- Who it is: an official unit's `unit_id` and `attest` (below), or a custom
-  gadget's `product_id` (below), or neither.
+- `description`: what the gadget is and what each command and event does
+  (A gadget describes itself, below). An official unit's `unit_id` and
+  `attest` (below) say which product it is instead.
 - `capabilities`: a summary for apps and prompts, without listing commands:
 
 ```json
@@ -92,23 +90,46 @@ that gadget registers as custom. When the gateway accepts the proof, the
 agent gets the manifest of the unit's product. `esp32/main/gadget_attest.c`
 implements it.
 
-### Custom gadgets: `product_id`
+### A gadget describes itself
 
-A gadget without a unit key can name a product its owner created on the Impo
-developer platform: set `CONFIG_GADGET_PRODUCT_ID` (`idf.py menuconfig` >
-ESP32 Device SDK) to the product's ID: the lowercase UUID Impo assigned when
-the product was created. The build fails on any other value. `link.register`
-then carries `"product_id": "6f1c2b9e-4a7d-4e2b-9c1a-3d5e7f9a1b2c"`, only when the unit did not attest: an official
-unit sends `unit_id` and `attest` and never a `product_id`. Nothing is
-proven, and nothing needs to be: the gadget binds on whichever account it is
-paired to, and the agent then gets the product's `dev` manifest.
-Left empty (the default), nothing is sent and the gadget is not set up: its
-commands work, but the agent gets no instructions or event meanings for it.
+Nothing in the firmware names an account or a product: the account is the one
+the gadget was paired to. What the gadget is and does is in the firmware, in
+two layers:
 
-To describe a gadget to the agent, create a product on the developer
-platform and fill in its manifest: a system prompt, the commands the agent
-may use (each a description and a JSON Schema for its parameters) and the
-events with what each means on this device. A gadget's task answers one
+- **The platform**, `esp32/main/platform.json`: what every ESP32 gadget runs
+  whatever hardware it is in, at chip level: Wi-Fi, Bluetooth and
+  authentication, and the commands `device.health` and `device.discover`.
+  Firmware updates will join it.
+- **The device**, `devices/<device>/description.json`: `about` (what the
+  device is and has, hardware facts only, at most 4,000 characters), every
+  command of its hardware and every event it sends. Code several devices
+  share (the speaker, the screen) is still described per device.
+
+```json
+{"about": "A StackChan: a small M5Stack desktop robot ...",
+ "commands": [{"name": "head.move", "description": "Point the robot's head ...",
+               "parameters": {"type": "object", "properties": {"yaw": {"type": "number", "minimum": -120, "maximum": 120}}},
+               "result": {"type": "object", "properties": {"yaw": {"type": "number"}, "pitch": {"type": "number"}}}}],
+ "events": [{"name": "head_touched", "description": "The person touched ...",
+             "data": {"type": "object", "properties": {"how": {"type": "string", "enum": ["pat", "stroke"]}}}}]}
+```
+
+Each command has a `description` (at most 500 characters), `parameters` (an
+object schema) and `result` (what an ok answer holds); each event a
+`description` (at most 200) and `data`. Schemas are the subset
+`contracts/gadget-identity.md` in impoai/impo allows. The device's component
+embeds the file (`EMBED_TXTFILES`) and sets `impo_board_t.description`;
+`link.register` sends both files as written:
+`"description": {"platform": {...}, "device": {...}}`. `tools/impo/board.sh
+build <device>` first runs `tests/test_<device>.py`, which checks the format
+and that the description names exactly the commands the firmware runs and the
+events it sends. The gateway checks again on every connection, and the Impo
+platform checks the format. A board without a description sends none: its
+commands work, but the agent sees only their names.
+
+To change what the agent and the Impo app say about a device, edit its
+`description.json`, build and flash it: the gadget sends the new description
+when it reconnects. A gadget's task answers one
 thing at a time: while the agent works on one event, the next waits. So a
 system prompt should ask for what one lookup can answer ("the subjects of the
 two newest unread mails"), not for what takes a tour ("how many unread
@@ -321,7 +342,6 @@ glows them pink for a moment and then shows them again.
 | Command | Who has it | Parameters | Result payload |
 |---|---|---|---|
 | `device.health` | every gadget | — | `{"overall", "metrics": {uptime, heap, battery_pct, battery_mv, charging, usb_power}, "network_ssid", "version"}` |
-| `device.set_name` | every gadget | `name` (1–32 characters) | — ; the gadget stores the name, reconnects under it, and the account's gadget list shows it from then on |
 | `device.discover` | gadgets with the tunnel | — | devices found on the home network |
 | `device.ota` | gadgets with OTA on | `url`, `force`? | — (not offered to the agent) |
 

@@ -1,0 +1,12 @@
+{
+  "commands": [
+    {"name": "device.health",
+     "description": "The gadget's battery level and whether it is charging (on a gadget with a battery), uptime, free memory, its Wi-Fi network and firmware version.",
+     "parameters": {"type": "object", "properties": {}, "additionalProperties": false},
+     "result": {"type": "object", "properties": {"overall": {"type": "string", "enum": ["ok"]}, "metrics": {"type": "object", "properties": {"battery_pct": {"type": "integer"}, "battery_mv": {"type": "integer"}, "charging": {"type": "boolean"}, "usb_power": {"type": "boolean"}, "uptime_seconds": {"type": "integer"}, "heap_free_internal": {"type": "integer"}, "heap_free_psram": {"type": "integer"}}, "required": ["battery_pct", "battery_mv", "charging", "usb_power", "uptime_seconds", "heap_free_internal", "heap_free_psram"]}, "network_ssid": {"type": "string"}, "version": {"type": "string"}}, "required": ["overall", "metrics", "network_ssid", "version"]}},
+    {"name": "device.discover",
+     "description": "Scan the home network the gadget is on for other devices and services (ARP, mDNS, SSDP, WS-Discovery, SNMP and NetBIOS) for up to 90 seconds. Answers with the gadget's own address and what each source saw.",
+     "parameters": {"type": "object", "properties": {"sources": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["arp", "mdns", "ssdp", "wsd", "snmp", "netbios"]}, "description": "The sources to scan with; all when left out."}}, "additionalProperties": false},
+     "result": {"type": "object", "properties": {"network": {"type": "object", "properties": {"ip": {"type": "string"}, "netmask": {"type": "string"}, "gateway": {"type": "string"}}, "required": ["ip", "netmask", "gateway"]}, "observations": {"type": "array", "items": {"type": "object", "description": "One device or service seen, with the source that saw it."}}, "sources": {"type": "object", "description": "Per source: how many it found and whether it stopped at a limit."}, "complete": {"type": "boolean", "description": "false when a source failed or stopped at a limit."}}, "required": ["network", "observations", "sources", "complete"]}}
+  ]
+}

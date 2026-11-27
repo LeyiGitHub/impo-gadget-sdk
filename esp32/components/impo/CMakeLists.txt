@@ -21,6 +21,7 @@
 # from idf_component.yml, where rules keep them out of Link-only builds.
 set(srcs)
 set(embed)
+set(embed_text)
 if(CONFIG_IMPO_ENABLED)
     list(APPEND srcs
         "impo_app.c"
@@ -82,6 +83,7 @@ if(CONFIG_IMPO_ENABLED)
         list(APPEND srcs "boards/board_waveshare_c6_206.c")
     elseif(CONFIG_IMPO_BOARD_SENSECAP_WATCHER)
         list(APPEND srcs "boards/board_sensecap_watcher.c" "boards/impo_lcd_bands.c")
+        list(APPEND embed_text "watcher_description.json")
         if(CONFIG_IMPO_WATCHER_CAMERA)
             list(APPEND srcs "boards/watcher_camera.c")
         endif()
@@ -132,6 +134,7 @@ idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "."
     EMBED_FILES ${embed}
+    EMBED_TXTFILES ${embed_text}
     WHOLE_ARCHIVE   # impo_lv_mem.c provides symbols only LVGL references
     REQUIRES esp_driver_gpio esp_driver_i2c
     PRIV_REQUIRES ${impo_priv_requires}

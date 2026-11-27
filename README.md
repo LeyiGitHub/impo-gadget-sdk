@@ -16,6 +16,11 @@ limitations under the License.
 
 # Impo Gadgets
 
+This branch includes the physically accepted **SenseCAP Watcher 0.1.1** profile.
+See [Watcher source, build and acceptance notes](watcher/README.md) for the
+ESP-IDF 6.0.1 build, Chinese display, wheel push-to-talk and speech tests.
+Camera support is disabled pending a successful hardware test.
+
 > **Impo fork.** This is [Impo](https://impo.ai)'s fork of Meta's
 > [facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk),
 > the open-source Muse Gadgets SDK. It differs from upstream in these ways:

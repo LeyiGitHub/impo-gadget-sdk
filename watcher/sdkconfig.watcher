@@ -1,0 +1,16 @@
+# Load after official sdkconfig.impo and sdkconfig.impo-sensecap-watcher.
+# This file contains no credentials. Product ID is a separate public overlay.
+CONFIG_HOMEHUB_BLE_NAME_PREFIX="ImpoGadget-Watcher"
+CONFIG_IMPO_CJK_FONT=y
+CONFIG_IMPO_WATCHER_CAMERA=n
+CONFIG_IMPO_DISABLE_SAVED_NOTES=y
+CONFIG_IMPO_DEFAULT_VOLUME=40
+# No tunnel is needed for this standalone voice/display/camera device.
+CONFIG_HOMEHUB_TUNNEL=n
+CONFIG_HOMEHUB_OTA_ENABLED=n
+CONFIG_HOMEHUB_NVS_ENCRYPTION=n
+CONFIG_NVS_ENCRYPTION=n
+CONFIG_HOMEHUB_PAIRING_EFUSE_AUTH=n
+CONFIG_SECURE_BOOT=n
+CONFIG_SECURE_BOOT_ENABLED=n
+CONFIG_SECURE_FLASH_ENC_ENABLED=n

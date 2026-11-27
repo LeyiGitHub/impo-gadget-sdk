@@ -1,0 +1,60 @@
+{
+  "accepted_on": "2026-11-27",
+  "timezone": "Asia/Shanghai",
+  "hardware": "Seeed SenseCAP Watcher / ESP32-S3 / 32 MiB flash / 8 MiB PSRAM",
+  "firmware": "0.1.1",
+  "sdk_commit": "90d1fbd5939f00eadd3f867d9cf7c15f779a7065",
+  "target_build": {
+    "passed": true,
+    "app_bytes": 3149824,
+    "app_slot_bytes": 4194304
+  },
+  "host_tests": {
+    "tests_run": 261,
+    "passed": 260,
+    "skipped": 1
+  },
+  "physical_acceptance": [
+    "Owner phone BLE pairing",
+    "Link Online and chat Connected after reboot",
+    "Gateway-prepared phrase played completely and clearly",
+    "Chinese IMPO 已连接 caption confirmed",
+    "Physical wheel push-to-talk and clear spoken reply"
+  ],
+  "voice_trial": {
+    "recorded_seconds": 4.06,
+    "aac_request_bytes": 17060,
+    "rms_dbfs": -36.9,
+    "peak_dbfs": -6.7,
+    "clipped_samples": 0,
+    "gateway_message_ack": true,
+    "assistant_messages": 1,
+    "reply_characters_reported": 246,
+    "first_reply_audio_after_release_ms": 11390,
+    "reply_audio_seconds": 21.0,
+    "turn_complete": true,
+    "performance_note": "One controlled physical trial; not a repeated latency or stability assessment."
+  },
+  "not_accepted": [
+    "touch interaction (transient touch I2C errors appeared during startup)",
+    "image URL and remote audio URL playback",
+    "battery runtime / unplugged standalone operation",
+    "full stock restore drill",
+    "long-duration stability"
+  ],
+  "excluded": [
+    "camera.capture: stock set_sensor failure and native Himax no response; disabled in 0.1.1",
+    "Himax inference/model installation",
+    "SD/Grove expansion",
+    "motors or environmental sensors"
+  ],
+  "original_backup": {
+    "verified_copies": 2,
+    "bytes_each": 33554432,
+    "included_in_repository": false
+  },
+  "observations": [
+    "USB UART stopped returning bytes while screen stayed on; USB replug restored communication; root cause not established.",
+    "Startup touch I2C read errors observed; display acceptance does not establish touch acceptance."
+  ]
+}

@@ -53,7 +53,7 @@ static const char *TAG = "impo_voice";
 #define SETTLE_CHUNKS 10   /* after Impo makes a sound, 200 ms of capture is its own tail */
 #define REST_BACKSTOP_MS 60000
 
-#if CONFIG_IMPO_HATCH
+#if CONFIG_IMPO_HATCH && !CONFIG_IMPO_DISABLE_SAVED_NOTES
 /* A note recorded while Hatch is out of reach is saved in PSRAM, and goes once it's back. */
 #define HOLD_NOTES 1
 #else

@@ -204,6 +204,14 @@ menu "Impo"
             GPIO, and set that GPIO here. -1 leaves push-to-talk recording
             silence.
 
+    config IMPO_DISABLE_SAVED_NOTES
+        bool "Disable automatic retry of recorded voice notes"
+        depends on IMPO_ENABLED
+        default n
+        help
+            Discard offline or unacknowledged notes instead of saving
+            and resubmitting an old input after connectivity returns.
+
     config IMPO_HATCH
         bool "Impo's own voice session"
         depends on IMPO_ENABLED

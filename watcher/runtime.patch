@@ -1,0 +1,261 @@
+--- a/esp32/components/impo/Kconfig
++++ b/esp32/components/impo/Kconfig
+@@ -204,6 +204,14 @@
+             GPIO, and set that GPIO here. -1 leaves push-to-talk recording
+             silence.
+ 
++    config IMPO_DISABLE_SAVED_NOTES
++        bool "Disable automatic retry of recorded voice notes"
++        depends on IMPO_ENABLED
++        default n
++        help
++            Discard offline or unacknowledged notes instead of saving
++            and resubmitting an old input after connectivity returns.
++
+     config IMPO_HATCH
+         bool "Impo's own voice session"
+         depends on IMPO_ENABLED
+--- a/esp32/components/impo/impo_voice.c
++++ b/esp32/components/impo/impo_voice.c
+@@ -53,7 +53,7 @@
+ #define SETTLE_CHUNKS 10   /* after Impo makes a sound, 200 ms of capture is its own tail */
+ #define REST_BACKSTOP_MS 60000
+ 
+-#if CONFIG_IMPO_HATCH
++#if CONFIG_IMPO_HATCH && !CONFIG_IMPO_DISABLE_SAVED_NOTES
+ /* A note recorded while Hatch is out of reach is saved in PSRAM, and goes once it's back. */
+ #define HOLD_NOTES 1
+ #else
+--- a/esp32/components/impo/CMakeLists.txt
++++ b/esp32/components/impo/CMakeLists.txt
+@@ -21,6 +21,7 @@
+ # from idf_component.yml, where rules keep them out of Link-only builds.
+ set(srcs)
+ set(embed)
++set(embed_text)
+ if(CONFIG_IMPO_ENABLED)
+     list(APPEND srcs
+         "impo_app.c"
+@@ -82,6 +83,7 @@
+         list(APPEND srcs "boards/board_waveshare_c6_206.c")
+     elseif(CONFIG_IMPO_BOARD_SENSECAP_WATCHER)
+         list(APPEND srcs "boards/board_sensecap_watcher.c" "boards/impo_lcd_bands.c")
++        list(APPEND embed_text "watcher_description.json")
+         if(CONFIG_IMPO_WATCHER_CAMERA)
+             list(APPEND srcs "boards/watcher_camera.c")
+         endif()
+@@ -132,6 +134,7 @@
+     SRCS ${srcs}
+     INCLUDE_DIRS "."
+     EMBED_FILES ${embed}
++    EMBED_TXTFILES ${embed_text}
+     WHOLE_ARCHIVE   # impo_lv_mem.c provides symbols only LVGL references
+     REQUIRES esp_driver_gpio esp_driver_i2c
+     PRIV_REQUIRES ${impo_priv_requires}
+--- a/esp32/components/impo/boards/board_sensecap_watcher.c
++++ b/esp32/components/impo/boards/board_sensecap_watcher.c
+@@ -791,7 +791,10 @@
+     return ESP_FAIL;
+ }
+ 
++extern const char watcher_description_json[] asm("_binary_watcher_description_json_start");
++
+ static const impo_board_t s_board = {
++    .description = watcher_description_json,
+     .name = "Seeed SenseCAP Watcher",
+     .width = LCD_RES,
+     .height = LCD_RES,
+--- /dev/null
++++ b/esp32/components/impo/watcher_description.json
+@@ -0,0 +1,191 @@
++{
++  "about": "SenseCAP Watcher 是桌面带屏语音终端，ESP32-S3、8MB PSRAM、32MB Flash，1.45英寸412×412圆形彩色触摸屏，滚轮按键、单麦克风和扬声器、内置电池。按住滚轮输入语音。扬声器播放网关准备的语音或直链音频，文字朗读由平台speaker.say准备并转为speaker.play。本机没有电机，不能转头或环视；摄像头在实机上未响应，当前没有开放拍照或视觉识别；没有已确认可用的环境传感器、SD或Grove扩展。",
++  "commands": [
++    {
++      "name": "display.show_text",
++      "description": "在圆屏角色下显示短文字并唤醒屏幕。为适应200字节限制，一次最多50个字符。",
++      "parameters": {
++        "type": "object",
++        "properties": {
++          "text": {
++            "type": "string",
++            "minLength": 1,
++            "maxLength": 50
++          }
++        },
++        "required": [
++          "text"
++        ],
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "avatar.cheer",
++      "description": "让屏幕角色短暂表现高兴并唤醒屏幕，不控制任何电机。",
++      "parameters": {
++        "type": "object",
++        "properties": {},
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "speaker.set_volume",
++      "description": "设置并保存扬声器音量百分比。",
++      "parameters": {
++        "type": "object",
++        "properties": {
++          "percent": {
++            "type": "integer",
++            "minimum": 0,
++            "maximum": 100
++          }
++        },
++        "required": [
++          "percent"
++        ],
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "speaker.play_url",
++      "description": "从公开HTTP(S)直链播放MP3或16位PCM WAV。网址必须直接返回音频。调用在播放完成、停止或失败后返回，成功包含played_ms和bytes；最长约110秒。",
++      "parameters": {
++        "type": "object",
++        "properties": {
++          "url": {
++            "type": "string",
++            "minLength": 9,
++            "maxLength": 512
++          }
++        },
++        "required": [
++          "url"
++        ],
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {
++          "played_ms": {
++            "type": "integer",
++            "minimum": 0
++          },
++          "bytes": {
++            "type": "integer",
++            "minimum": 0
++          }
++        }
++      }
++    },
++    {
++      "name": "speaker.stop",
++      "description": "停止本机正在播放的音频；可用于打断speaker.play或speaker.play_url。",
++      "parameters": {
++        "type": "object",
++        "properties": {},
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "speaker.status",
++      "description": "查询本机音量和播放状态idle/fetching/playing/failed及可取得的错误；不把idle单独当作完整听测通过。",
++      "parameters": {
++        "type": "object",
++        "properties": {},
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "display.draw_url",
++      "description": "从图片直链下载并显示到412×412彩色圆屏。优先使用缩放合适的基线JPEG；网址必须直接返回图片。",
++      "parameters": {
++        "type": "object",
++        "properties": {
++          "url": {
++            "type": "string",
++            "minLength": 8,
++            "maxLength": 512
++          },
++          "row": {
++            "type": "integer",
++            "minimum": 0,
++            "maximum": 411
++          }
++        },
++        "required": [
++          "url"
++        ],
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "display.show_animation",
++      "description": "退出图片显示，恢复本机角色与状态画面。",
++      "parameters": {
++        "type": "object",
++        "properties": {},
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {}
++      }
++    },
++    {
++      "name": "speaker.play",
++      "description": "播放网关已经准备好的音频ID；由平台朗读能力准备后调用，不得编造ID。调用在播放完成、停止或失败后返回，成功包含played_ms和bytes。",
++      "parameters": {
++        "type": "object",
++        "properties": {
++          "id": {
++            "type": "string",
++            "minLength": 1,
++            "maxLength": 64
++          }
++        },
++        "required": [
++          "id"
++        ],
++        "additionalProperties": false
++      },
++      "result": {
++        "type": "object",
++        "properties": {
++          "played_ms": {
++            "type": "integer",
++            "minimum": 0
++          },
++          "bytes": {
++            "type": "integer",
++            "minimum": 0
++          }
++        }
++      }
++    }
++  ],
++  "events": []
++}

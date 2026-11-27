@@ -791,7 +791,10 @@ static esp_err_t power_off(void)
     return ESP_FAIL;
 }
 
+extern const char watcher_description_json[] asm("_binary_watcher_description_json_start");
+
 static const impo_board_t s_board = {
+    .description = watcher_description_json,
     .name = "Seeed SenseCAP Watcher",
     .width = LCD_RES,
     .height = LCD_RES,

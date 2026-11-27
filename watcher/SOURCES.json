@@ -1,0 +1,21 @@
+{
+  "sdk_repository": "https://github.com/impoai/impo-gadget-sdk",
+  "sdk_commit": "90d1fbd5939f00eadd3f867d9cf7c15f779a7065",
+  "firmware_version": "0.1.1",
+  "idf_version": "6.0.1",
+  "source_files": {
+    "esp32/components/impo/Kconfig": "9464dc51ef023532bbcb594d4acb527d214ee9c9d5ef9d7a1fe0bfa12e72daaf",
+    "esp32/components/impo/CMakeLists.txt": "99d68a49f4748e5860daeee14735952845caad0a53fee7f1738f6bd7cb24be56",
+    "esp32/components/impo/impo_voice.c": "26e2e10243462d8e8cfa27fb6ee4f28ce14e46694cc8ca502ef4d6be30a7d497",
+    "esp32/components/impo/boards/board_sensecap_watcher.c": "b0db17cfa992d9c4df04dd83485e3797adc752200e5667f61e81ddc88755ea10",
+    "esp32/components/impo/watcher_description.json": "fe5b8c8c1e8e4421037124fba7f66590e6dd822e235b27672e5351a26ecdfc50"
+  },
+  "component_lock_sha256": "db8b6ac2f0a49a9d6637b9df650a48e2e7014704c1578b9e5256419d730d9371",
+  "deployed_application": {
+    "bytes": 3149824,
+    "sha256": "361ba238dce59a43a50ffde01efadf4a433211eb84c3e9018d6452f004670c86",
+    "note": "Hash of the image accepted on the original unit; rebuild output can differ with build paths or generated metadata."
+  },
+  "published_repository": "https://github.com/LeyiGitHub/impo-gadget-sdk",
+  "published_branch": "codex/watcher-impo-0.1.1-20261127"
+}
